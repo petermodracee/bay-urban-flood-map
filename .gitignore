@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+
+# Environment & secrets
+.env
+.env.*
+
+# Large geospatial & model files
+data/*
+!data/.gitkeep
+*.tif
+*.tiff
+*.nc
+*.pmtiles
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.gpkg
+*.laz
+*.las
+sfincs_*/
+
+# OS
+.DS_Store

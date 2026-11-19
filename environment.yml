@@ -1,0 +1,12 @@
+name: bay-urban-flood-map
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python>=3.11
+  - hydromt_sfincs
+  - rasterio
+  - geopandas
+  - rioxarray
+  - pyproj
+  - pyyaml
