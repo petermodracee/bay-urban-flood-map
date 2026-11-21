@@ -94,7 +94,7 @@ slr_increments:
     tidal_hydrograph_file: null
 
 # Crossed scenario matrix: 2 rain events x 4 SLR increments = 8 runs
-# v0.1 vertical slice runs sf_100yr_slr0ft first (see docs/PLAN.md)
+# v0.1 vertical slice runs sf_100yr_slr0ft first (see docs/plan/PLAN_V01.md)
 scenarios:
   - id: sf_100yr_slr0ft
     rain: rain_100yr

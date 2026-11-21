@@ -1,4 +1,4 @@
-# PLAN.md — v0.1 San Francisco Benchmark Vertical Slice
+# PLAN_V01.md — v0.1 San Francisco Benchmark Vertical Slice (Complete)
 
 Goal: Run the full pipeline end-to-end on a ~15 km² San Francisco test slice (e.g., Mission / Alemany corridor), validate modeled pooling against the SFPUC 100-Year Storm Flood Risk Map, and render the resulting COG in a local MapLibre viewer.
 

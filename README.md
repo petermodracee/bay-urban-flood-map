@@ -26,7 +26,10 @@ An experimental open-source urban stormwater and compound sea level rise (SLR) f
 │   ├── MODEL_SPEC.md         # Hydrodynamic modeling, datums, & validation
 │   ├── DATA_CONTRACTS.md     # Shared COG, vector, & manifest schemas
 │   ├── WEB_SPEC.md           # MapLibre frontend & UI specification
-│   └── PLAN.md               # v0.1 milestone checklist
+│   └── plan/
+│       ├── ROADMAP.md        # Milestone index & future backlog
+│       ├── PLAN_V01.md       # v0.1 SF slice checklist (complete)
+│       └── PLAN_V02.md       # v0.2 citywide SF compound SLR plan
 ├── configs/
 │   └── sf_benchmark.yml      # Rain × SLR scenario matrix & domain config
 ├── pipeline/

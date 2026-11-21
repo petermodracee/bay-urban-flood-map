@@ -19,7 +19,7 @@ The repo has two decoupled halves connected only by static files in `data/web_ou
 
 ## Context Routing (Read Before Editing)
 - **Project rationale & tradeoffs:** Read `docs/DECISIONS.md`.
-- **Current milestone checklist:** Read `docs/PLAN.md`.
+- **Current milestone checklist:** Read `docs/plan/ROADMAP.md` and the active milestone plan (`docs/plan/PLAN_V02.md`, or `docs/plan/PLAN_V01.md` for v0.1).
 - **Editing `pipeline/` or `configs/`:** Read `docs/MODEL_SPEC.md` and `docs/DATA_CONTRACTS.md`.
 - **Editing `web/`:** Read `docs/WEB_SPEC.md` and `docs/DATA_CONTRACTS.md`.
 - **Modifying file names, CRS, NoData rules, or JSON outputs:** Update `docs/DATA_CONTRACTS.md` first.
@@ -37,7 +37,7 @@ The repo has two decoupled halves connected only by static files in `data/web_ou
 ## Git Workflow
 - **Branching:** Do not commit directly to `main`. Create a short-lived branch per task (e.g., `feat/prep-terrain`, `fix/cog-nodata`, `docs/update-spec`).
 - **Safe Staging:** Never run `git add .` or `git add -A`. Run `git status` first and stage specific files by path to guarantee no large rasters or temporary outputs are included.
-- **Atomic Commits:** Keep commits small and scoped to a single concern or `docs/PLAN.md` checklist item (avoid bundling unrelated config, pipeline, web, and doc edits in one commit), using Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`).
+- **Atomic Commits:** Keep commits small and scoped to a single concern or `docs/plan/` checklist item (avoid bundling unrelated config, pipeline, web, and doc edits in one commit), using Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`).
 - **Attribution:** Keep commit messages clean (no AI/agent footers); when a PR is AI-assisted, include a brief note and concrete verification results in the PR description.
 - **Verify Before Committing:** Run the relevant verification command (`pytest` or `npm run build`) before creating a commit.
 - **Remote Safety:** Never force-push (`--force`) or rewrite shared history. Ask for confirmation before pushing to remote or opening a pull request.
@@ -52,4 +52,4 @@ Ask for confirmation before:
 ## Dev & Test Conventions
 - **Python execution:** Run via `conda run -n bay-urban-flood-map python <script>`.
 - **Fast tests only:** Keep `pytest` fast and offline using tiny synthetic fixtures; never trigger full SFINCS Docker runs or live downloads inside unit tests.
-- **Progress tracking:** When completing a milestone, check off the corresponding item in `docs/PLAN.md` in the same commit.
+- **Progress tracking:** When completing a milestone, check off the corresponding item in the active `docs/plan/PLAN_V*.md` file in the same commit.
