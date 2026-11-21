@@ -7,10 +7,55 @@
   </head>
   <body>
     <div id="map"></div>
-    <div id="hud">
-      <strong>SF Bay Urban Flood Map</strong>
-      <span>Click anywhere on the flood layer to query pixel depth.</span>
+
+    <aside id="controls" aria-label="Flood map controls">
+      <header class="panel-header">
+        <h1>SF Bay Urban Flood Map</h1>
+        <p class="subtitle">v0.1 San Francisco Benchmark (1 m Subgrid SFINCS)</p>
+      </header>
+
+      <div class="control-group">
+        <label for="scenario-select">Scenario</label>
+        <select id="scenario-select" disabled>
+          <option value="">Loading scenarios…</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <div class="control-row">
+          <label for="opacity-slider">Flood layer opacity</label>
+          <span id="opacity-value">75%</span>
+        </div>
+        <input
+          id="opacity-slider"
+          type="range"
+          min="0"
+          max="100"
+          value="75"
+        />
+      </div>
+
+      <label class="checkbox-row" for="benchmark-toggle">
+        <input id="benchmark-toggle" type="checkbox" />
+        <span>SFPUC 100-Yr Flood Risk overlay</span>
+      </label>
+
+      <section class="legend-section" aria-label="Flood depth legend">
+        <h2 id="legend-title">Max Flood Depth</h2>
+        <ul id="legend-list"></ul>
+      </section>
+
+      <p id="status-text" class="status-text">
+        Click any flooded cell to query depth.
+      </p>
+    </aside>
+
+    <div id="disclaimer-banner" role="note">
+      <strong>Experimental Model:</strong> Shows simulated 2D overland
+      rainfall pooling and Bay tidal-lock using a uniform drainage proxy. Not a
+      parcel-level storm-pipe capacity model or FEMA regulatory floodplain map.
     </div>
+
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

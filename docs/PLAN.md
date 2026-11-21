@@ -38,10 +38,10 @@ Goal: Run the full pipeline end-to-end on a ~15 km² San Francisco test slice (e
 - [x] Export simplified `sf_sfpuc_100yr_benchmark.geojson` and `manifest.json` to `data/web_outputs/`.
 
 ## Phase 5: Thin Web Viewer (`web/`)
-- [ ] Wire Vite + `maplibre-gl` + `@geomatico/maplibre-cog-protocol` to load `manifest.json` and render the local COG.
-- [ ] Insert flood-depth layer below basemap road labels (`beforeId`).
-- [ ] Implement core v0.1 controls: opacity slider, SFPUC benchmark polygon toggle, and click-to-query pixel depth popup (in/ft + m).
-- [ ] Add experimental-model disclaimer banner and verify clean production build (`npm run build`).
+- [x] Wire Vite + `maplibre-gl` + `@geomatico/maplibre-cog-protocol` to load `manifest.json` and render the local COG.
+- [x] Insert flood-depth layer below basemap road labels (`beforeId`).
+- [x] Implement core v0.1 controls: opacity slider, SFPUC benchmark polygon toggle, and click-to-query pixel depth popup (in/ft + m).
+- [x] Add experimental-model disclaimer banner and verify clean production build (`npm run build`).
 
 ---
 
