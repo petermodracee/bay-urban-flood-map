@@ -1,0 +1,236 @@
+# San Francisco Citywide Compound SLR & Historical Storm Configuration (v0.2)
+# Evaluates full San Francisco (~121 km^2) at 20m computational grid / 2m subgrid terrain,
+# crossing 10-yr and 100-yr design storms with dynamic +0, +1, +3, +5 ft SLR tides
+# plus the Dec 31, 2022 - Jan 1, 2023 Atmospheric River hindcast.
+
+project:
+  name: sf_citywide
+  region_id: "sf_citywide"
+  baseline_scenario: "sf_citywide_100yr_slr0ft"
+  crs: "EPSG:26910"  # NAD83 / UTM Zone 10N (meters)
+  output_crs: "EPSG:3857"  # Web Mercator for Cloud Optimized GeoTIFFs
+  vertical_datum: "NAVD88"
+  tide_gauge: "9414290"  # NOAA San Francisco, CA
+
+domain:
+  # Full mainland San Francisco peninsula [xmin, ymin, xmax, ymax] in EPSG:26910 (13.0 km x 12.4 km)
+  bbox_epsg26910: [542600.0, 4173000.0, 555600.0, 4185400.0]
+  fetch_buffer_m: 500.0
+  grid_resolution_m: 20.0
+  subgrid_resolution_m: 2.0
+  dem_source: "data/raw/sf_citywide/sf_citywide_topobathy_dem_2m.tif"
+  nlcd_landcover_source: "data/raw/sf_citywide/sf_citywide_nlcd_2021_landcover.tif"
+  nlcd_impervious_source: "data/raw/sf_citywide/sf_citywide_nlcd_2021_impervious.tif"
+  hsg_soils_source: "data/raw/sf_citywide/sf_citywide_usda_hsg.gpkg"
+  roads_rail_source: "data/raw/sf_citywide/sf_citywide_osm_roads_rail.gpkg"
+  buildings_source: "data/raw/sf_citywide/sf_citywide_buildings.gpkg"
+  buildings_url: "https://data.sfgov.org/api/geospatial/ynuv-fyni?method=export&format=GeoJSON"
+  shoreline_structures_source: "data/raw/sf_citywide/sf_sfei_shoreline_structures.gpkg"
+  sfei_raw_gdb_path: "data/raw/sf_citywide/SFBayShoreInventory_SFEI_2016_0/ESRI ArcGIS/SFBayShoreInventory__SFEI_2016.gdb"
+  sfei_raw_layer: "San_Francisco_Bay_Shore_Inventory__100ft_segments_with_elevation"
+  validation_reference: "data/raw/sfpuc_100yr_flood_risk.gpkg"
+  validation_311_reference: "data/raw/sf_citywide/sf_311_20221231_floods.gpkg"
+  validation_311_start_utc: "2022-12-31T00:00:00"
+  validation_311_end_utc: "2023-01-02T00:00:00"
+
+# NOAA Atlas 14 Vol. 6 v2 PDS depths (mm) at (37.745, -122.415) + Open-Meteo Dec 31, 2022 AR
+rain_events:
+  rain_10yr:
+    label: "10-Year Design Storm"
+    return_period_yr: 10
+    duration_hr: 24
+    total_depth_mm: 90.4
+    hyetograph_method: "alternating_block"
+    timestep_min: 15
+    idf_depths_mm:
+      5: 6.3
+      10: 9.1
+      15: 11.0
+      30: 15.0
+      60: 21.2
+      120: 29.5
+      180: 36.6
+      360: 50.3
+      720: 67.8
+      1440: 90.4
+    hyetograph_file: "data/raw/sf_hyetograph_10yr_24hr.csv"
+  rain_100yr:
+    label: "100-Year Design Storm"
+    return_period_yr: 100
+    duration_hr: 24
+    total_depth_mm: 144.0
+    hyetograph_method: "alternating_block"
+    timestep_min: 15
+    idf_depths_mm:
+      5: 9.6
+      10: 13.8
+      15: 16.7
+      30: 22.9
+      60: 32.3
+      120: 44.5
+      180: 55.1
+      360: 76.2
+      720: 105.9
+      1440: 144.0
+    hyetograph_file: "data/raw/sf_hyetograph_100yr_24hr.csv"
+  rain_ar_20221231:
+    label: "Dec 31, 2022 Atmospheric River"
+    return_period_yr: null
+    duration_hr: 48
+    source: "open_meteo_archive"
+    lat: 37.76
+    lon: -122.43
+    start_date: "2022-12-31"
+    end_date: "2023-01-01"
+    timestep_min: 60
+    hyetograph_file: "data/raw/sf_citywide/sf_hyetograph_ar_20221231_48hr.csv"
+
+slr_increments:
+  slr_0ft:
+    slr_ft: 0.0
+    slr_m: 0.0
+    opc_2024_pathway: "Baseline (Present Day)"
+    opc_2024_horizon: "2020"
+    tide_method: "synthetic_semidiurnal"
+    mhhw_m: 1.85
+    surge_m: 0.35
+    tidal_amp_m: 0.85
+    peak_time_hr: 12.0
+    timestep_min: 10
+    duration_hr: 24
+    tidal_hydrograph_file: "data/raw/sf_citywide/sf_tide_design_slr0ft.csv"
+  slr_1ft:
+    slr_ft: 1.0
+    slr_m: 0.3048
+    opc_2024_pathway: "2024 CA OPC Intermediate (~2050) / Intermediate-High (~2040)"
+    opc_2024_horizon: "2040-2050"
+    tide_method: "synthetic_semidiurnal"
+    mhhw_m: 1.85
+    surge_m: 0.35
+    tidal_amp_m: 0.85
+    peak_time_hr: 12.0
+    timestep_min: 10
+    duration_hr: 24
+    tidal_hydrograph_file: "data/raw/sf_citywide/sf_tide_design_slr1ft.csv"
+  slr_3ft:
+    slr_ft: 3.0
+    slr_m: 0.9144
+    opc_2024_pathway: "2024 CA OPC Intermediate (~2100) / Intermediate-High (~2080)"
+    opc_2024_horizon: "2080-2100"
+    tide_method: "synthetic_semidiurnal"
+    mhhw_m: 1.85
+    surge_m: 0.35
+    tidal_amp_m: 0.85
+    peak_time_hr: 12.0
+    timestep_min: 10
+    duration_hr: 24
+    tidal_hydrograph_file: "data/raw/sf_citywide/sf_tide_design_slr3ft.csv"
+  slr_5ft:
+    slr_ft: 5.0
+    slr_m: 1.5240
+    opc_2024_pathway: "2024 CA OPC Intermediate-High (~2100)"
+    opc_2024_horizon: "2100"
+    tide_method: "synthetic_semidiurnal"
+    mhhw_m: 1.85
+    surge_m: 0.35
+    tidal_amp_m: 0.85
+    peak_time_hr: 12.0
+    timestep_min: 10
+    duration_hr: 24
+    tidal_hydrograph_file: "data/raw/sf_citywide/sf_tide_design_slr5ft.csv"
+  tide_ar_20221231:
+    slr_ft: 0.0
+    slr_m: 0.0
+    opc_2024_pathway: "Observed Hindcast (NOAA 9414290)"
+    opc_2024_horizon: "2022-12-31"
+    tide_method: "noaa_coops"
+    begin_date: "20221231"
+    end_date: "20230101"
+    reference_time_utc: "2022-12-31T00:00:00"
+    tidal_hydrograph_file: "data/raw/sf_citywide/sf_tide_obs_20221231.csv"
+
+scenarios:
+  - id: sf_citywide_100yr_slr0ft
+    rain: rain_100yr
+    slr: slr_0ft
+  - id: sf_citywide_ar_20221231
+    rain: rain_ar_20221231
+    slr: tide_ar_20221231
+  - id: sf_citywide_100yr_slr1ft
+    rain: rain_100yr
+    slr: slr_1ft
+  - id: sf_citywide_100yr_slr3ft
+    rain: rain_100yr
+    slr: slr_3ft
+  - id: sf_citywide_100yr_slr5ft
+    rain: rain_100yr
+    slr: slr_5ft
+  - id: sf_citywide_10yr_slr0ft
+    rain: rain_10yr
+    slr: slr_0ft
+  - id: sf_citywide_10yr_slr1ft
+    rain: rain_10yr
+    slr: slr_1ft
+  - id: sf_citywide_10yr_slr3ft
+    rain: rain_10yr
+    slr: slr_3ft
+  - id: sf_citywide_10yr_slr5ft
+    rain: rain_10yr
+    slr: slr_5ft
+
+paths:
+  raw_dir: "data/raw/sf_citywide"
+  processed_dir: "data/processed/sf_citywide"
+  runs_dir: "data/runs"
+  web_output_dir: "data/web_outputs"
+
+terrain_prep:
+  hydro_dem_file: "data/processed/sf_citywide/sf_citywide_hydro_dem_2m.tif"
+  manning_n_file: "data/processed/sf_citywide/sf_citywide_manning_n_2m.tif"
+  curve_number_file: "data/processed/sf_citywide/sf_citywide_curve_number_2m.tif"
+  bridge_buffer_m: 12.0
+  approach_sample_m: 10.0
+  carve_half_width_m: 5.0
+  min_bump_m: 0.15
+  building_handling: "elevation_bump"
+  building_elevation_bump_m: 3.0
+  building_manning_n: 0.30
+  manning_n_paved: 0.030
+  manning_n_water: 0.020
+  manning_n_open_space: 0.035
+  manning_n_vegetation: 0.060
+  default_urban_hsg: "D"
+  nodata_value: -9999.0
+
+sfincs_model:
+  docker_image: "deltares/sfincs-cpu:latest"
+  reference_time_utc: "2020-01-01T00:00:00"
+  drainage_rate_mm_hr: 5.0
+  dtout_s: 3600.0
+  dtmaxout_s: 86400.0
+  alpha: 0.5
+  huthresh_m: 0.01
+  advection: 1
+  subgrid_nbins: 10
+  subgrid_max_gradient: 5.0
+  cn_reproj_method: "med"
+  outflow_perimeter_bounds: true
+
+validation:
+  depth_threshold_m: 0.1524
+  min_land_elevation_m: 0.5
+  downscaled_depth_file: "data/processed/sf_citywide/sf_citywide_100yr_slr0ft_depth_2m.tif"
+  summary_file: "data/processed/sf_citywide/validation_summary.json"
+  sweep_drainage_rates_mm_hr: [5.0]
+  sweep_manning_n_paved: [0.030]
+
+export:
+  min_depth_m: 0.05
+  nodata_value: -9999.0
+  mask_open_water: true
+  cog_blocksize: 256
+  benchmark_geojson_file: "data/web_outputs/sf_sfpuc_100yr_benchmark.geojson"
+  benchmark_simplify_tolerance_m: 1.0
+  manifest_file: "data/web_outputs/manifest.json"
+  manifest_version: "0.2"
+  web_data_url_prefix: "/data"

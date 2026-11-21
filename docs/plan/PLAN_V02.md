@@ -5,15 +5,15 @@ Goal: Scale the calibrated v0.1 pipeline (`drainage_rate_mm_hr: 5.0`, `manning_n
 ---
 
 ## Phase 0: Full-SF Config & Raw Data (`configs/sf_citywide.yml`)
-- [ ] Define full-SF bounding box (`EPSG:26910`, `NAVD88`) with `grid_resolution_m: 20.0`, `subgrid_resolution_m: 2.0`, and calibrated defaults (`drainage_rate_mm_hr: 5.0`, `manning_n_paved: 0.030`) in `configs/sf_citywide.yml`.
-- [ ] Download citywide raw inputs into `data/raw/sf_citywide/` (git-ignored):
-  - [ ] Full-SF USGS 3DEP 1 m LiDAR DEM (`CA_SanFrancisco_B23` tiles covering the entire peninsula + Farallon exclusion).
-  - [ ] USGS Annual NLCD 2021 land cover & imperviousness and USDA SSURGO HSG (`CA689`).
-  - [ ] OSM roads, rail, and building footprints covering full SF.
-  - [ ] SFEI SF Bay Shore Inventory shoreline structures (seawalls, levees, berms).
-  - [ ] NOAA CO-OPS `9414290` (San Francisco) 6-min `NAVD88` tide series for **2022-12-31 – 2023-01-01** plus dynamic 24–48 hr design tidal hydrographs shifted by `+0 / +1 / +3 / +5 ft` (`0.0 / 0.3048 / 0.9144 / 1.5240 m`) synchronized with peak rainfall.
-  - [ ] Dec 31, 2022 observed rainfall hyetograph (MRMS / Downtown SF / KSFO gauge) for `sf_ar_20221231`.
-  - [ ] DataSF 311 Cases filtered to `2022-12-31` – `2023-01-01` street flooding / catch-basin / sewer-backup reports.
+- [x] Define full-SF bounding box (`EPSG:26910`, `NAVD88`) with `grid_resolution_m: 20.0`, `subgrid_resolution_m: 2.0`, and calibrated defaults (`drainage_rate_mm_hr: 5.0`, `manning_n_paved: 0.030`) in `configs/sf_citywide.yml`.
+- [x] Download citywide raw inputs into `data/raw/sf_citywide/` (git-ignored):
+  - [x] Full-SF USGS 3DEP 1 m LiDAR DEM (`CA_SanFrancisco_B23` tiles covering the entire peninsula + Farallon exclusion).
+  - [x] USGS Annual NLCD 2021 land cover & imperviousness and USDA SSURGO HSG (`CA689`).
+  - [x] OSM roads, rail, and building footprints covering full SF.
+  - [x] SFEI SF Bay Shore Inventory shoreline structures (seawalls, levees, berms).
+  - [x] NOAA CO-OPS `9414290` (San Francisco) 6-min `NAVD88` tide series for **2022-12-31 – 2023-01-01** plus dynamic 24–48 hr design tidal hydrographs shifted by `+0 / +1 / +3 / +5 ft` (`0.0 / 0.3048 / 0.9144 / 1.5240 m`) synchronized with peak rainfall.
+  - [x] Dec 31, 2022 observed rainfall hyetograph (MRMS / Downtown SF / KSFO gauge) for `sf_ar_20221231`.
+  - [x] DataSF 311 Cases filtered to `2022-12-31` – `2023-01-01` street flooding / catch-basin / sewer-backup reports.
 
 ## Phase 1: Citywide Hydro-Enforcement & Shoreline Structures (`pipeline/01_prep_terrain.py`)
 - [ ] Run hydro-enforcement across all SF freeway/rail underpasses and tunnels (US-101, I-280, I-80 approaches, Caltrain, Geary/Stockton underpasses) at `2 m` subgrid resolution.
@@ -28,6 +28,7 @@ Goal: Scale the calibrated v0.1 pipeline (`drainage_rate_mm_hr: 5.0`, `manning_n
 ## Phase 3: Dual Citywide Validation (`pipeline/03_validate_sf.py`)
 - [ ] Score citywide `sf_100yr_slr0ft` (`>= 0.1524 m`) against the full SFPUC 100-Year Storm Flood Risk Map (citywide + neighborhood breakdown: Mission, Alemany, SOMA, Marina, Sunset/Lake Merced, Bayview/Islais Creek, Visitacion Valley).
 - [ ] Score `sf_ar_20221231` against **Dec 31, 2022 SF 311 flood reports** (spatial hit/capture rate within `25 m` and `50 m` buffers vs. random dry control points).
+- [ ] Generate a 3-way validation report (`docs/reports/sf_v02_validation.md` + JSON metrics in `data/processed/sf_citywide/`) comparing Dec 31, 2022 SF 311 cases against both our SFINCS hindcast (`sf_ar_20221231`) and the official SFPUC 100-Year Flood Risk Map: capture rates at `0 m / 25 m / 50 m` buffers (`>= 0.05 m` and `>= 0.1524 m`), lift/ROC-AUC vs. random dry control points, subtype breakdown (`Flooding` vs. `Sewage_back_up`), neighborhood breakdown, and top missed 311 clusters.
 - [ ] Inspect top false positives/negatives across citywide corridors and resolve any remaining unburned underpasses or shoreline berm gaps before running the full matrix.
 
 ## Phase 2B: Full 8-Scenario Compound SLR Matrix (`pipeline/02_build_sfincs.py`)
