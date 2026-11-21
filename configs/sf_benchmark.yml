@@ -12,27 +12,59 @@ project:
   tide_gauge: "9414290"  # NOAA San Francisco, CA
 
 domain:
-  # TODO (Phase 0): Define exact ~15 km^2 SF Mission/Alemany bbox [xmin, ymin, xmax, ymax] in EPSG:26910 (meters)
-  bbox_epsg26910: null
+  # ~20.16 km^2 (4.2 km x 4.8 km) SF Mission/Alemany corridor [xmin, ymin, xmax, ymax] in EPSG:26910
+  bbox_epsg26910: [550000.0, 4175800.0, 554200.0, 4180600.0]
+  fetch_buffer_m: 500.0
   grid_resolution_m: 10.0  # 10m-20m SFINCS computational grid
   subgrid_resolution_m: 1.0  # 1m-2m subgrid terrain tables
   dem_source: "data/raw/sf_topobathy_dem.tif"
+  nlcd_landcover_source: "data/raw/sf_nlcd_2021_landcover.tif"
+  nlcd_impervious_source: "data/raw/sf_nlcd_2021_impervious.tif"
+  hsg_soils_source: "data/raw/sf_usda_hsg.gpkg"
+  roads_rail_source: "data/raw/sf_osm_roads_rail.gpkg"
   buildings_source: "data/raw/sf_buildings.gpkg"
   validation_reference: "data/raw/sfpuc_100yr_flood_risk.gpkg"
 
+# NOAA Atlas 14 Vol. 6 v2 PDS precipitation frequency depths (mm) at (37.745, -122.415)
 rain_events:
   rain_10yr:
     label: "10-Year Design Storm"
     return_period_yr: 10
     duration_hr: 24
-    total_depth_mm: null  # TODO (Phase 0): populate from NOAA Atlas 14 / SFPUC IDF curve (metric)
-    hyetograph_file: null
+    total_depth_mm: 90.4
+    hyetograph_method: "alternating_block"
+    timestep_min: 15
+    idf_depths_mm:
+      5: 6.3
+      10: 9.1
+      15: 11.0
+      30: 15.0
+      60: 21.2
+      120: 29.5
+      180: 36.6
+      360: 50.3
+      720: 67.8
+      1440: 90.4
+    hyetograph_file: "data/raw/sf_hyetograph_10yr_24hr.csv"
   rain_100yr:
     label: "100-Year Design Storm"
     return_period_yr: 100
     duration_hr: 24
-    total_depth_mm: null  # TODO (Phase 0): populate from NOAA Atlas 14 / SFPUC IDF curve (metric)
-    hyetograph_file: null
+    total_depth_mm: 144.0
+    hyetograph_method: "alternating_block"
+    timestep_min: 15
+    idf_depths_mm:
+      5: 9.6
+      10: 13.8
+      15: 16.7
+      30: 22.9
+      60: 32.3
+      120: 44.5
+      180: 55.1
+      360: 76.2
+      720: 105.9
+      1440: 144.0
+    hyetograph_file: "data/raw/sf_hyetograph_100yr_24hr.csv"
 
 slr_increments:
   slr_0ft:
