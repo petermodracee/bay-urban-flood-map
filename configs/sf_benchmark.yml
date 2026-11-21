@@ -144,3 +144,17 @@ terrain_prep:
   manning_n_vegetation: 0.060
   default_urban_hsg: "D"
   nodata_value: -9999.0
+
+sfincs_model:
+  docker_image: "deltares/sfincs-cpu:latest"
+  reference_time_utc: "2020-01-01T00:00:00"
+  drainage_rate_mm_hr: 15.0
+  dtout_s: 3600.0
+  dtmaxout_s: 86400.0
+  alpha: 0.5
+  huthresh_m: 0.01
+  advection: 1
+  subgrid_nbins: 10
+  subgrid_max_gradient: 5.0
+  cn_reproj_method: "med"
+  outflow_perimeter_bounds: true

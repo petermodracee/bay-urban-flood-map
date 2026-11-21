@@ -21,9 +21,9 @@ Goal: Run the full pipeline end-to-end on a ~15 km² San Francisco test slice (e
 - [x] Generate Curve Number infiltration and surface roughness grids in `data/processed/`.
 
 ## Phase 2: Baseline SFINCS Run (`pipeline/02_build_sfincs.py`)
-- [ ] Build SFINCS model with `hydromt_sfincs` (10m–20m computational grid + 1m–2m subgrid terrain tables).
-- [ ] Configure historical 100-year rainfall forcing and an initial uniform urban drainage subtraction rate (e.g., `15 mm/hr`).
-- [ ] Execute solver via `deltares/sfincs-cpu` Docker container and confirm `sfincs_map.nc` outputs in `data/runs/`.
+- [x] Build SFINCS model with `hydromt_sfincs` (10m–20m computational grid + 1m–2m subgrid terrain tables).
+- [x] Configure historical 100-year rainfall forcing and an initial uniform urban drainage subtraction rate (e.g., `15 mm/hr`).
+- [x] Execute solver via `deltares/sfincs-cpu` Docker container and confirm `sfincs_map.nc` outputs in `data/runs/`.
 
 ## Phase 3: SFPUC Benchmark Validation (`pipeline/03_validate_sf.py`)
 - [ ] Downscale SFINCS max water level (`zsmax`) to the 1m–2m hydro-enforced DEM to produce max flood depth (`m`).
