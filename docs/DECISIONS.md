@@ -21,3 +21,9 @@ This file records *why* key architectural choices were made so future contributo
 ## 4. Two-Stage Validation Strategy
 - **Decision:** Validate in two distinct phases: (1) San Francisco against SFPUC's 100-Year Storm Flood Risk Map, then (2) a flatland, bay-margin MS4 watershed against real-storm observations (311 flooded-street logs, CHP/Caltrans closures, county OneRain gauges).
 - **Why:** San Francisco is an ideal sandbox for verifying terrain hydro-enforcement and baseline drainage subtraction, *but* SF operates a combined sewer system and SFPUC's map explicitly excludes Bay tides. Stage 2 is strictly required to validate separate MS4 drainage and tidal backwater mechanics.
+
+## 5. v0.1 SF Benchmark Calibration Baseline (Phase 3)
+- **Decision:** Update `configs/sf_benchmark.yml` baseline defaults from `drainage_rate_mm_hr: 15.0` / `manning_n_paved: 0.020` to `drainage_rate_mm_hr: 5.0` / `manning_n_paved: 0.030` (`validation_summary.json`).
+- **Why:**
+  - *Sweep performance:* On the `sf_100yr_slr0ft` benchmark (`144.0 mm` 24-hr NOAA Atlas 14 storm, `>= 0.1524 m` threshold over land `>= 0.5 m` NAVD88), `15.0 mm/hr` subtracted ~88% of total rainfall (`17.30 mm` net runoff), yielding `HR=0.0735`, `FAR=0.6196`, `CSI=0.0656`. Lowering uniform drainage subtraction to `5.0 mm/hr` (`47.40 mm` net runoff) with `manning_n_paved=0.030` increased Hit Rate 4x (`0.3047`), reduced FAR (`0.5065`), and increased CSI 3.5x (`0.2321`).
+  - *Structural score ceiling (do not overfit):* SFPUC 100-year polygons snap to full parcels (including building footprints), whereas the 1 m hydro-enforced DEM bumps buildings `+3.0 m` so ponding stays in street corridors. Combined with unmodeled spatial variation between older combined-sewer bowls and modern separated-sewer fill (e.g., Mission Bay, the largest false-positive cluster at `104,800 m²`), pixel-level CSI is expected to stay modest without artificial highway-dam artifacts.
