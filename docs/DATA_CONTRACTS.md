@@ -1,0 +1,70 @@
+# DATA_CONTRACTS.md — Pipeline-to-Web Interfaces
+
+This file defines the exact formats shared between `pipeline/` (Python) and `web/` (JavaScript).
+
+## 1. Directory Layout (`data/`, git-ignored)
+
+```text
+data/
+├── raw/            # Unmodified downloads (USGS 3DEP, NLCD, DataSF)
+├── processed/      # Hydro-enforced DEMs, Curve Number grids (EPSG:26910)
+├── runs/           # SFINCS model directories & NetCDF outputs
+└── web_outputs/    # Final EPSG:3857 COGs, PMTiles, and manifest.json
+```
+
+## 2. Raster Output Contract (COGs)
+
+Every flood raster exported by `04_export_cog.py` for the web frontend must meet these exact specs:
+
+- **Filename Pattern:** `{region}_{storm}_{slr}_{metric}_3857.tif`
+  - Examples:
+    - `sf_100yr_slr0ft_depth_3857.tif`
+    - `sf_100yr_slr3ft_delta_3857.tif`
+- **CRS:** `EPSG:3857` (Web Mercator) — required by `@geomatico/maplibre-cog-protocol`.
+- **Data Type:** `Float32` (single band).
+- **Units:** Meters (`m`).
+- **NoData Value:** `-9999.0` (or `NaN`). Mask all dry/trace cells where `depth < 0.05` meters (approx. 2 inches) to NoData so transparent areas render cleanly over basemaps.
+- **Format & Compression:** Cloud Optimized GeoTIFF (`-of COG`), `COMPRESS=DEFLATE`, `PREDICTOR=3`, `OVERVIEWS=IGNORE_EXISTING`, `BLOCKSIZE=256`.
+
+## 3. Vector Overlay Contract
+
+- **Format:** Static `PMTiles` (`.pmtiles`) in `EPSG:4326` (WGS84) for regional overlays, or lightweight GeoJSON (`< 2 MB`) for v0.1 SF benchmark polygons.
+- **Required Benchmark Layer (v0.1):** `sf_sfpuc_100yr_benchmark.geojson` (simplified to 1m tolerance if needed for browser performance).
+
+## 4. Validation Summary Contract (`validation_summary.json`)
+
+Output by `03_validate_sf.py` for parameter sweeps:
+
+```json
+{
+  "region": "sf_mission_alemany",
+  "drainage_rate_mm_hr": 15.0,
+  "manning_n_paved": 0.02,
+  "depth_threshold_m": 0.1524,
+  "metrics": {
+    "hit_rate": 0.0,
+    "false_alarm_ratio": 0.0,
+    "csi": 0.0
+  }
+}
+```
+
+## 5. Scenario Manifest (`data/web_outputs/manifest.json`)
+
+The web frontend reads this file to populate dropdowns and resolve COG URLs without hardcoding filenames:
+
+```json
+{
+  "version": "0.1",
+  "scenarios": [
+    {
+      "id": "sf_100yr_slr0ft_depth",
+      "label": "100-Yr Storm — Today (0 ft SLR)",
+      "storm": "100yr",
+      "slr_ft": 0,
+      "metric": "depth",
+      "url": "/data/sf_100yr_slr0ft_depth_3857.tif"
+    }
+  ]
+}
+```
