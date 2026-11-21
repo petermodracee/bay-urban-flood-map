@@ -15,10 +15,10 @@ Goal: Run the full pipeline end-to-end on a ~15 km² San Francisco test slice (e
   - [x] DataSF 100-Year Storm Flood Risk Zone polygons (`data.sf.gov`).
 
 ## Phase 1: Terrain & Infiltration Prep (`pipeline/01_prep_terrain.py`)
-- [ ] Clip and reproject all raw inputs to `EPSG:26910` (meters).
-- [ ] Burn culverts/underpasses into the 1m DEM at freeway/rail crossings (verify US-101 / I-280 / Alemany corridors do not act as artificial dams).
-- [ ] Apply building footprint handling (elevation bump or high Manning's n) so runoff routes along street corridors.
-- [ ] Generate Curve Number infiltration and surface roughness grids in `data/processed/`.
+- [x] Clip and reproject all raw inputs to `EPSG:26910` (meters).
+- [x] Burn culverts/underpasses into the 1m DEM at freeway/rail crossings (verify US-101 / I-280 / Alemany corridors do not act as artificial dams).
+- [x] Apply building footprint handling (elevation bump or high Manning's n) so runoff routes along street corridors.
+- [x] Generate Curve Number infiltration and surface roughness grids in `data/processed/`.
 
 ## Phase 2: Baseline SFINCS Run (`pipeline/02_build_sfincs.py`)
 - [ ] Build SFINCS model with `hydromt_sfincs` (10m–20m computational grid + 1m–2m subgrid terrain tables).
