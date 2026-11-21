@@ -166,3 +166,14 @@ validation:
   summary_file: "data/processed/validation_summary.json"
   sweep_drainage_rates_mm_hr: [5.0, 15.0]
   sweep_manning_n_paved: [0.020, 0.030]
+
+export:
+  min_depth_m: 0.05  # Mask dry/trace cells (< 2 inches) to NoData
+  nodata_value: -9999.0
+  mask_open_water: true
+  cog_blocksize: 256
+  benchmark_geojson_file: "data/web_outputs/sf_sfpuc_100yr_benchmark.geojson"
+  benchmark_simplify_tolerance_m: 1.0
+  manifest_file: "data/web_outputs/manifest.json"
+  manifest_version: "0.1"
+  web_data_url_prefix: "/data"

@@ -32,10 +32,10 @@ Goal: Run the full pipeline end-to-end on a ~15 km² San Francisco test slice (e
 - [x] Visually inspect top false positives to catch any unburned underpasses or terrain artifacts.
 
 ## Phase 4: Web-Ready COG Export (`pipeline/04_export_cog.py`)
-- [ ] Mask dry/trace cells (`depth < 0.05 m`) to NoData (`-9999.0`).
-- [ ] Reproject to `EPSG:3857` and export deflated Cloud Optimized GeoTIFF with internal overviews (`sf_100yr_slr0ft_depth_3857.tif`).
-- [ ] Verify COG compliance with `gdalinfo` (`EPSG:3857`, `LAYOUT=COG`, overviews present).
-- [ ] Export simplified `sf_sfpuc_100yr_benchmark.geojson` and `manifest.json` to `data/web_outputs/`.
+- [x] Mask dry/trace cells (`depth < 0.05 m`) to NoData (`-9999.0`).
+- [x] Reproject to `EPSG:3857` and export deflated Cloud Optimized GeoTIFF with internal overviews (`sf_100yr_slr0ft_depth_3857.tif`).
+- [x] Verify COG compliance with `gdalinfo` (`EPSG:3857`, `LAYOUT=COG`, overviews present).
+- [x] Export simplified `sf_sfpuc_100yr_benchmark.geojson` and `manifest.json` to `data/web_outputs/`.
 
 ## Phase 5: Thin Web Viewer (`web/`)
 - [ ] Wire Vite + `maplibre-gl` + `@geomatico/maplibre-cog-protocol` to load `manifest.json` and render the local COG.
