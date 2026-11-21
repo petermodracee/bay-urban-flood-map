@@ -123,7 +123,7 @@ def test_build_docker_run_command_and_config_schema(tmp_path: Path) -> None:
         cfg = yaml.safe_load(f)
     sfincs_cfg = cfg["sfincs_model"]
     assert sfincs_cfg["docker_image"] == "deltares/sfincs-cpu:latest"
-    assert sfincs_cfg["drainage_rate_mm_hr"] == 15.0
+    assert sfincs_cfg["drainage_rate_mm_hr"] == 5.0
     assert sfincs_cfg["dtout_s"] == 3600.0
     assert sfincs_cfg["dtmaxout_s"] == 86400.0
     assert sfincs_cfg["outflow_perimeter_bounds"] is True

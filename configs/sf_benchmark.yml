@@ -138,7 +138,7 @@ terrain_prep:
   building_handling: "elevation_bump"  # "elevation_bump" or "high_manning"
   building_elevation_bump_m: 3.0
   building_manning_n: 0.30
-  manning_n_paved: 0.020
+  manning_n_paved: 0.030
   manning_n_water: 0.020
   manning_n_open_space: 0.035
   manning_n_vegetation: 0.060
@@ -148,7 +148,7 @@ terrain_prep:
 sfincs_model:
   docker_image: "deltares/sfincs-cpu:latest"
   reference_time_utc: "2020-01-01T00:00:00"
-  drainage_rate_mm_hr: 15.0
+  drainage_rate_mm_hr: 5.0
   dtout_s: 3600.0
   dtmaxout_s: 86400.0
   alpha: 0.5
@@ -158,3 +158,11 @@ sfincs_model:
   subgrid_max_gradient: 5.0
   cn_reproj_method: "med"
   outflow_perimeter_bounds: true
+
+validation:
+  depth_threshold_m: 0.1524  # 6 inches (SFPUC 100-Year Storm Flood Risk threshold)
+  min_land_elevation_m: 0.5  # Exclude open Bay water below 0.5 m NAVD88 from urban flood scoring
+  downscaled_depth_file: "data/processed/sf_100yr_slr0ft_depth_1m.tif"
+  summary_file: "data/processed/validation_summary.json"
+  sweep_drainage_rates_mm_hr: [5.0, 15.0]
+  sweep_manning_n_paved: [0.020, 0.030]

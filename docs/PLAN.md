@@ -26,10 +26,10 @@ Goal: Run the full pipeline end-to-end on a ~15 km² San Francisco test slice (e
 - [x] Execute solver via `deltares/sfincs-cpu` Docker container and confirm `sfincs_map.nc` outputs in `data/runs/`.
 
 ## Phase 3: SFPUC Benchmark Validation (`pipeline/03_validate_sf.py`)
-- [ ] Downscale SFINCS max water level (`zsmax`) to the 1m–2m hydro-enforced DEM to produce max flood depth (`m`).
-- [ ] Threshold modeled depth at `>= 0.1524 m` (6 inches) and score against DataSF polygons (Hit Rate, False Alarm Ratio, CSI).
-- [ ] Run a small parameter sweep across drainage subtraction rate and paved Manning's n; write best scores to `validation_summary.json`.
-- [ ] Visually inspect top false positives to catch any unburned underpasses or terrain artifacts.
+- [x] Downscale SFINCS max water level (`zsmax`) to the 1m–2m hydro-enforced DEM to produce max flood depth (`m`).
+- [x] Threshold modeled depth at `>= 0.1524 m` (6 inches) and score against DataSF polygons (Hit Rate, False Alarm Ratio, CSI).
+- [x] Run a small parameter sweep across drainage subtraction rate and paved Manning's n; write best scores to `validation_summary.json`.
+- [x] Visually inspect top false positives to catch any unburned underpasses or terrain artifacts.
 
 ## Phase 4: Web-Ready COG Export (`pipeline/04_export_cog.py`)
 - [ ] Mask dry/trace cells (`depth < 0.05 m`) to NoData (`-9999.0`).
