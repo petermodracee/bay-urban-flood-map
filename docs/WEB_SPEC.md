@@ -4,10 +4,10 @@
 - **Build Tool:** Vite (vanilla JS or TypeScript; keep dependencies minimal).
 - **Mapping:** `maplibre-gl` + `@geomatico/maplibre-cog-protocol` for serverless COG streaming, client-side color functions (`setColorFunction`), and pixel value queries (`locationValues`).
 - **Vector Overlays:** `pmtiles` protocol for static vector layers.
-- **Hosting Target:** Static files only (Cloudflare Pages / GitHub Pages + R2/S3 for COGs).
+- **Hosting Target:** Static files only (Cloudflare Pages / GitHub Pages + R2/S3 for COGs). In local dev/preview, `web/vite.config.js` serves `data/web_outputs/` at `/data/` with HTTP `Range` request support.
 
 ## 2. Visual Hierarchy & Layer Ordering
-Street legibility is critical for urban flood maps. Always insert flood-depth COG layers **below** the basemap's road-label and building-outline layers (using MapLibre's `beforeId` parameter).
+Street legibility is critical for urban flood maps. Use a free, no-API-key vector basemap (e.g., OpenFreeMap Positron) and always insert flood-depth COG layers **below** the basemap's road-label and building-outline layers (using MapLibre's `beforeId` parameter).
 
 ## 3. Color Ramps & Units
 All COG pixels are `Float32` meters (`< 0.05 m` is NoData/transparent). Convert to **inches** (if `< 12 in`) or **feet** (if `>= 12 in`) in tooltips and legends.

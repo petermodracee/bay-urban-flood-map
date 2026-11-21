@@ -4,15 +4,18 @@
 
 project:
   name: sf_benchmark
+  region_id: "sf_mission_alemany"
+  baseline_scenario: "sf_100yr_slr0ft"
   crs: "EPSG:26910"  # NAD83 / UTM Zone 10N (meters)
   output_crs: "EPSG:3857"  # Web Mercator for Cloud Optimized GeoTIFFs
   vertical_datum: "NAVD88"
   tide_gauge: "9414290"  # NOAA San Francisco, CA
 
 domain:
-  # Placeholder bounding box [xmin, ymin, xmax, ymax] in EPSG:4326
-  bbox: [-122.52, 37.70, -122.35, 37.82]
-  resolution_m: 5.0
+  # TODO (Phase 0): Define exact ~15 km^2 SF Mission/Alemany bbox [xmin, ymin, xmax, ymax] in EPSG:26910 (meters)
+  bbox_epsg26910: null
+  grid_resolution_m: 10.0  # 10m-20m SFINCS computational grid
+  subgrid_resolution_m: 1.0  # 1m-2m subgrid terrain tables
   dem_source: "data/raw/sf_topobathy_dem.tif"
   buildings_source: "data/raw/sf_buildings.gpkg"
   validation_reference: "data/raw/sfpuc_100yr_flood_risk.gpkg"
@@ -22,13 +25,13 @@ rain_events:
     label: "10-Year Design Storm"
     return_period_yr: 10
     duration_hr: 24
-    total_depth_in: null  # TODO: populate from NOAA Atlas 14 / SFPUC IDF curve
+    total_depth_mm: null  # TODO (Phase 0): populate from NOAA Atlas 14 / SFPUC IDF curve (metric)
     hyetograph_file: null
   rain_100yr:
     label: "100-Year Design Storm"
     return_period_yr: 100
     duration_hr: 24
-    total_depth_in: null  # TODO: populate from NOAA Atlas 14 / SFPUC IDF curve
+    total_depth_mm: null  # TODO (Phase 0): populate from NOAA Atlas 14 / SFPUC IDF curve (metric)
     hyetograph_file: null
 
 slr_increments:
@@ -37,40 +40,30 @@ slr_increments:
     slr_m: 0.0
     opc_2024_pathway: "Baseline (Present Day)"
     opc_2024_horizon: "2020"
-    boundary_water_level_m_navd88: null  # TODO: MHHW + storm surge baseline
+    # Dynamic 24-48 hr tidal hydrograph (MHHW + storm surge + SLR); null for pluvial-only v0.1 baseline
+    tidal_hydrograph_file: null
   slr_1ft:
     slr_ft: 1.0
     slr_m: 0.3048
     opc_2024_pathway: "2024 CA OPC Intermediate (~2050) / Intermediate-High (~2040)"
     opc_2024_horizon: "2040-2050"
-    boundary_water_level_m_navd88: null
+    tidal_hydrograph_file: null
   slr_3ft:
     slr_ft: 3.0
     slr_m: 0.9144
     opc_2024_pathway: "2024 CA OPC Intermediate (~2100) / Intermediate-High (~2080)"
     opc_2024_horizon: "2080-2100"
-    boundary_water_level_m_navd88: null
+    tidal_hydrograph_file: null
   slr_5ft:
     slr_ft: 5.0
     slr_m: 1.5240
     opc_2024_pathway: "2024 CA OPC Intermediate-High (~2100)"
     opc_2024_horizon: "2100"
-    boundary_water_level_m_navd88: null
+    tidal_hydrograph_file: null
 
 # Crossed scenario matrix: 2 rain events x 4 SLR increments = 8 runs
+# v0.1 vertical slice runs sf_100yr_slr0ft first (see docs/PLAN.md)
 scenarios:
-  - id: sf_10yr_slr0ft
-    rain: rain_10yr
-    slr: slr_0ft
-  - id: sf_10yr_slr1ft
-    rain: rain_10yr
-    slr: slr_1ft
-  - id: sf_10yr_slr3ft
-    rain: rain_10yr
-    slr: slr_3ft
-  - id: sf_10yr_slr5ft
-    rain: rain_10yr
-    slr: slr_5ft
   - id: sf_100yr_slr0ft
     rain: rain_100yr
     slr: slr_0ft
@@ -83,7 +76,21 @@ scenarios:
   - id: sf_100yr_slr5ft
     rain: rain_100yr
     slr: slr_5ft
+  - id: sf_10yr_slr0ft
+    rain: rain_10yr
+    slr: slr_0ft
+  - id: sf_10yr_slr1ft
+    rain: rain_10yr
+    slr: slr_1ft
+  - id: sf_10yr_slr3ft
+    rain: rain_10yr
+    slr: slr_3ft
+  - id: sf_10yr_slr5ft
+    rain: rain_10yr
+    slr: slr_5ft
 
 paths:
-  model_root: "sfincs_sf_benchmark"
-  cog_output_dir: "web/public/cogs"
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  runs_dir: "data/runs"
+  web_output_dir: "data/web_outputs"

@@ -12,7 +12,7 @@ def export_cog(config_path: Path, scenario_id: str | None = None) -> None:
     with config_path.open("r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
-    out_dir = cfg.get("paths", {}).get("cog_output_dir", "web/public/cogs")
+    out_dir = cfg.get("paths", {}).get("web_output_dir", "data/web_outputs")
     out_crs = cfg.get("project", {}).get("output_crs", "EPSG:3857")
     print(f"[04_export_cog] Target CRS: {out_crs}, output dir: {out_dir}")
     if scenario_id:

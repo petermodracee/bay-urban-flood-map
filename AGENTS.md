@@ -37,7 +37,8 @@ The repo has two decoupled halves connected only by static files in `data/web_ou
 ## Git Workflow
 - **Branching:** Do not commit directly to `main`. Create a short-lived branch per task (e.g., `feat/prep-terrain`, `fix/cog-nodata`, `docs/update-spec`).
 - **Safe Staging:** Never run `git add .` or `git add -A`. Run `git status` first and stage specific files by path to guarantee no large rasters or temporary outputs are included.
-- **Atomic Commits:** Keep commits small, scoped to a single task or `docs/PLAN.md` checklist item, using Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`).
+- **Atomic Commits:** Keep commits small and scoped to a single concern or `docs/PLAN.md` checklist item (avoid bundling unrelated config, pipeline, web, and doc edits in one commit), using Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`).
+- **Attribution:** Keep commit messages clean (no AI/agent footers); when a PR is AI-assisted, include a brief note and concrete verification results in the PR description.
 - **Verify Before Committing:** Run the relevant verification command (`pytest` or `npm run build`) before creating a commit.
 - **Remote Safety:** Never force-push (`--force`) or rewrite shared history. Ask for confirmation before pushing to remote or opening a pull request.
 - All CI checks must pass before merge (if/when configured).

@@ -38,8 +38,8 @@ All scripts must be idempotent and driven by YAML configs in `configs/`.
    - Approximate underground storm pipes via a uniform urban drainage subtraction rate (mm/hr); use SFINCS internal structures (`culvert_simple`, `check_valve`, `pump`) only for major trunk bottlenecks.
    - Execute via `deltares/sfincs-cpu` Docker image.
 3. **`03_validate_sf.py`**
-   - Apply the `SFCD -> NAVD88` vertical datum offset *only* when comparing against SFPUC flood elevations; never modify the base DEM datum.
-   - Threshold downscaled max flood depth at `>= 0.1524 m` (6 inches) and score against DataSF polygons using **Hit Rate (HR)**, **False Alarm Ratio (FAR)**, and **Critical Success Index (CSI)**.
+   - Threshold downscaled max flood depth at `>= 0.1524 m` (6 inches) and score against DataSF extent polygons using **Hit Rate (HR)**, **False Alarm Ratio (FAR)**, and **Critical Success Index (CSI)**.
+   - If comparing water-surface elevations against SFPUC elevation records, apply the `SFCD -> NAVD88` vertical datum offset *only* at comparison time; never modify the base DEM datum.
 4. **`04_export_cog.py`**
    - Downscale SFINCS max water level (`zsmax`) onto the 1m–2m hydro-enforced DEM, mask dry cells, reproject to `EPSG:3857`, and write COGs per `docs/DATA_CONTRACTS.md`.
 

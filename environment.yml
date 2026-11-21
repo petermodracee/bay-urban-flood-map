@@ -5,6 +5,7 @@ channels:
 dependencies:
   - python>=3.11
   - hydromt_sfincs
+  - gdal
   - rasterio
   - geopandas
   - rioxarray
