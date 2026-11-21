@@ -5,14 +5,14 @@ Goal: Run the full pipeline end-to-end on a ~15 km² San Francisco test slice (e
 ---
 
 ## Phase 0: Environment & Raw Data
-- [ ] Create `conda-forge` environment from `environment.yml` and verify `hydromt_sfincs` imports cleanly.
-- [ ] Pull `deltares/sfincs-cpu` Docker image and confirm container execution against a local volume mount.
-- [ ] Define the exact ~15 km² SF test bounding box (`EPSG:26910`) and NOAA Atlas 14 design-storm inputs in `configs/sf_benchmark.yml`.
-- [ ] Download raw inputs into `data/raw/` (git-ignored):
-  - [ ] USGS 3DEP 1m LiDAR DEM (`NAVD88`) covering the test bbox.
-  - [ ] USGS Annual NLCD land cover / imperviousness and USDA HSG soil layer.
-  - [ ] OSM roads, rail, and building footprints for the test bbox.
-  - [ ] DataSF 100-Year Storm Flood Risk Zone polygons (`data.sf.gov`).
+- [x] Create `conda-forge` environment from `environment.yml` and verify `hydromt_sfincs` imports cleanly.
+- [x] Pull `deltares/sfincs-cpu` Docker image and confirm container execution against a local volume mount.
+- [x] Define the exact ~15 km² SF test bounding box (`EPSG:26910`) and NOAA Atlas 14 design-storm inputs in `configs/sf_benchmark.yml`.
+- [x] Download raw inputs into `data/raw/` (git-ignored):
+  - [x] USGS 3DEP 1m LiDAR DEM (`NAVD88`) covering the test bbox.
+  - [x] USGS Annual NLCD land cover / imperviousness and USDA HSG soil layer.
+  - [x] OSM roads, rail, and building footprints for the test bbox.
+  - [x] DataSF 100-Year Storm Flood Risk Zone polygons (`data.sf.gov`).
 
 ## Phase 1: Terrain & Infiltration Prep (`pipeline/01_prep_terrain.py`)
 - [ ] Clip and reproject all raw inputs to `EPSG:26910` (meters).
