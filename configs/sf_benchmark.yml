@@ -126,3 +126,21 @@ paths:
   processed_dir: "data/processed"
   runs_dir: "data/runs"
   web_output_dir: "data/web_outputs"
+
+terrain_prep:
+  hydro_dem_file: "data/processed/sf_hydro_dem_1m.tif"
+  manning_n_file: "data/processed/sf_manning_n_1m.tif"
+  curve_number_file: "data/processed/sf_curve_number_1m.tif"
+  bridge_buffer_m: 12.0
+  approach_sample_m: 10.0
+  carve_half_width_m: 5.0
+  min_bump_m: 0.15
+  building_handling: "elevation_bump"  # "elevation_bump" or "high_manning"
+  building_elevation_bump_m: 3.0
+  building_manning_n: 0.30
+  manning_n_paved: 0.020
+  manning_n_water: 0.020
+  manning_n_open_space: 0.035
+  manning_n_vegetation: 0.060
+  default_urban_hsg: "D"
+  nodata_value: -9999.0
