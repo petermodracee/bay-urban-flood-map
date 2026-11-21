@@ -158,3 +158,11 @@ sfincs_model:
   subgrid_max_gradient: 5.0
   cn_reproj_method: "med"
   outflow_perimeter_bounds: true
+
+validation:
+  depth_threshold_m: 0.1524  # 6 inches (SFPUC 100-Year Storm Flood Risk threshold)
+  min_land_elevation_m: 0.5  # Exclude open Bay water below 0.5 m NAVD88 from urban flood scoring
+  downscaled_depth_file: "data/processed/sf_100yr_slr0ft_depth_1m.tif"
+  summary_file: "data/processed/validation_summary.json"
+  sweep_drainage_rates_mm_hr: [5.0, 15.0]
+  sweep_manning_n_paved: [0.020, 0.030]
