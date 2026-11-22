@@ -21,9 +21,9 @@ Goal: Scale the calibrated v0.1 pipeline (`drainage_rate_mm_hr: 5.0`, `manning_n
 - [x] Generate citywide `sf_citywide_hydro_dem_2m.tif`, `sf_citywide_manning_n_2m.tif`, and `sf_citywide_curve_number_2m.tif` in `data/processed/`.
 
 ## Phase 2A: Coastal Tidal BCs & Initial Citywide Validation Runs (`pipeline/02_build_sfincs.py`)
-- [ ] Extend `pipeline/02_build_sfincs.py` to configure coastal water-level boundary cells (`msk=2` + `sfincs.bzs`/`sfincs.bnd`) along SF Bay & Pacific Ocean shorelines from `tidal_hydrograph_file`, keeping `msk=3` outflow along the southern San Mateo County boundary and masking deep offshore water.
-- [ ] Run **citywide baseline `sf_100yr_slr0ft`** (`20 m` grid / `2 m` subgrid).
-- [ ] Run **real-storm hindcast `sf_ar_20221231`** (Dec 31, 2022 observed rainfall + observed NOAA `9414290` tide).
+- [x] Extend `pipeline/02_build_sfincs.py` to configure coastal water-level boundary cells (`msk=2` + `sfincs.bzs`/`sfincs.bnd`) along SF Bay & Pacific Ocean shorelines from `tidal_hydrograph_file`, keeping `msk=3` outflow along the southern San Mateo County boundary and masking deep offshore water.
+- [x] Run **citywide baseline `sf_100yr_slr0ft`** (`20 m` grid / `2 m` subgrid).
+- [x] Run **real-storm hindcast `sf_ar_20221231`** (Dec 31, 2022 observed rainfall + observed NOAA `9414290` tide).
 
 ## Phase 3: Dual Citywide Validation (`pipeline/03_validate_sf.py`)
 - [ ] Score citywide `sf_100yr_slr0ft` (`>= 0.1524 m`) against the full SFPUC 100-Year Storm Flood Risk Map (citywide + neighborhood breakdown: Mission, Alemany, SOMA, Marina, Sunset/Lake Merced, Bayview/Islais Creek, Visitacion Valley).

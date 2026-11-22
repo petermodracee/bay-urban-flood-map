@@ -211,13 +211,14 @@ sfincs_model:
   drainage_rate_mm_hr: 5.0
   dtout_s: 3600.0
   dtmaxout_s: 86400.0
-  alpha: 0.5
+  alpha: 0.75
   huthresh_m: 0.01
   advection: 1
   subgrid_nbins: 10
   subgrid_max_gradient: 5.0
   cn_reproj_method: "med"
   outflow_perimeter_bounds: true
+  coastal_bound_zmax_m: 0.5
 
 validation:
   depth_threshold_m: 0.1524
