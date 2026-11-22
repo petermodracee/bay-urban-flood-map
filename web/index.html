@@ -11,14 +11,45 @@
     <aside id="controls" aria-label="Flood map controls">
       <header class="panel-header">
         <h1>SF Bay Urban Flood Map</h1>
-        <p class="subtitle">v0.1 San Francisco Benchmark (1 m Subgrid SFINCS)</p>
+        <p class="subtitle">v0.2 San Francisco Citywide (2 m Subgrid SFINCS)</p>
       </header>
 
       <div class="control-group">
-        <label for="scenario-select">Scenario</label>
-        <select id="scenario-select" disabled>
+        <label for="storm-select">Storm Event</label>
+        <select id="storm-select" disabled>
           <option value="">Loading scenarios…</option>
         </select>
+      </div>
+
+      <div class="control-group">
+        <label for="slr-select">Sea Level Rise (2024 CA OPC)</label>
+        <select id="slr-select" disabled>
+          <option value="0">Today (0 ft SLR)</option>
+        </select>
+        <p id="opc-pathway-text" class="opc-note"></p>
+      </div>
+
+      <div class="control-group">
+        <span class="control-label">Display Metric</span>
+        <div class="metric-toggle">
+          <button
+            id="metric-depth-btn"
+            type="button"
+            class="metric-btn active"
+            data-metric="depth"
+          >
+            Total Depth
+          </button>
+          <button
+            id="metric-delta-btn"
+            type="button"
+            class="metric-btn"
+            data-metric="delta"
+            disabled
+          >
+            Added SLR Delta
+          </button>
+        </div>
       </div>
 
       <div class="control-group">
@@ -40,6 +71,11 @@
         <span>SFPUC 100-Yr Flood Risk overlay</span>
       </label>
 
+      <label class="checkbox-row checkbox-311" for="floods-311-toggle">
+        <input id="floods-311-toggle" type="checkbox" />
+        <span>Dec 31, 2022 311 Flood Reports (424)</span>
+      </label>
+
       <section class="legend-section" aria-label="Flood depth legend">
         <h2 id="legend-title">Max Flood Depth</h2>
         <ul id="legend-list"></ul>
@@ -51,9 +87,10 @@
     </aside>
 
     <div id="disclaimer-banner" role="note">
-      <strong>Experimental Model:</strong> Shows simulated 2D overland
-      rainfall pooling and Bay tidal-lock using a uniform drainage proxy. Not a
-      parcel-level storm-pipe capacity model or FEMA regulatory floodplain map.
+      <strong>Experimental Screening Model:</strong> Simulates 2D overland
+      rainfall pooling and coastal tidal overtopping/backflow using a uniform
+      5 mm/hr drainage proxy. Not a 1D storm-pipe surcharge or FEMA regulatory
+      floodplain map.
     </div>
 
     <script type="module" src="/src/main.js"></script>

@@ -56,6 +56,14 @@ SURFACE_HIGHWAYS = frozenset(
     }
 )
 VEGETATION_NLCD_CLASSES = frozenset({41, 42, 43, 52, 71, 81, 82, 90, 95})
+SHORELINE_DEFENSE_CLASSES = frozenset(
+    {
+        "Shoreline Protection Structure",
+        "Embankment",
+        "Berm",
+        "Transportation Structure",
+    }
+)
 
 
 def parse_hsg_code(hydgrpdcd: Any) -> int:
@@ -242,11 +250,13 @@ def burn_underpasses_into_dem(
     corridors: Sequence[tuple[LineString, Point, Point, str]],
     carve_half_width_m: float,
     min_bump_m: float,
+    max_bump_m: float | None = 6.0,
 ) -> tuple[np.ndarray, dict[str, float | int]]:
     """Burn linear street grades downward through artificial bridge/dam spikes in the DEM."""
     out_dem = dem_m.astype(np.float32, copy=True)
     height, width = out_dem.shape
     corridors_burned = 0
+    corridors_skipped_max_bump = 0
     pixels_modified = 0
     max_carve_depth_m = 0.0
 
@@ -257,7 +267,13 @@ def burn_underpasses_into_dem(
             continue
 
         z_center_max = _max_centerline_elevation(out_dem, transform, nodata_value, line)
-        if z_center_max is None or (z_center_max - max(z_start, z_end)) < min_bump_m:
+        if z_center_max is None:
+            continue
+        bump_m = z_center_max - max(z_start, z_end)
+        if bump_m < min_bump_m:
+            continue
+        if max_bump_m is not None and bump_m > max_bump_m:
+            corridors_skipped_max_bump += 1
             continue
 
         corridor_poly = line.buffer(carve_half_width_m)
@@ -313,6 +329,7 @@ def burn_underpasses_into_dem(
     stats: dict[str, float | int] = {
         "corridors_evaluated": len(corridors),
         "corridors_burned": corridors_burned,
+        "corridors_skipped_max_bump": corridors_skipped_max_bump,
         "pixels_modified": pixels_modified,
         "max_carve_depth_m": round(max_carve_depth_m, 4),
     }
@@ -342,6 +359,75 @@ def apply_building_footprints(
         out_dem[valid_bldg] += np.float32(building_elevation_bump_m)
     out_manning[valid_bldg] = np.float32(building_manning_n)
     return out_dem, out_manning
+
+
+def enforce_shoreline_crests(
+    dem_m: np.ndarray,
+    transform: Affine,
+    nodata_value: float,
+    structures_gdf_utm: gpd.GeoDataFrame,
+    elevation_col: str = "Z_Mean",
+    half_width_m: float = 2.0,
+) -> tuple[np.ndarray, dict[str, int | float]]:
+    """Enforce SFEI shoreline defense crest elevations upward onto valid DEM cells."""
+    out_dem = dem_m.astype(np.float32, copy=True)
+    if structures_gdf_utm.empty:
+        return out_dem, {"structures_used": 0, "pixels_raised": 0, "max_raise_m": 0.0}
+    assert_crs_equals(structures_gdf_utm.crs, "EPSG:26910", "structures_gdf_utm")
+
+    if (
+        "Class" not in structures_gdf_utm.columns
+        or elevation_col not in structures_gdf_utm.columns
+    ):
+        raise ValueError(
+            f"Shoreline structures layer missing required columns 'Class' or '{elevation_col}'"
+        )
+
+    valid_rows = structures_gdf_utm[
+        structures_gdf_utm["Class"].isin(SHORELINE_DEFENSE_CLASSES)
+    ].copy()
+    valid_rows[elevation_col] = valid_rows[elevation_col].astype(float)
+    valid_rows = valid_rows[
+        np.isfinite(valid_rows[elevation_col]) & (valid_rows[elevation_col] > 0.0)
+    ]
+    if valid_rows.empty:
+        return out_dem, {"structures_used": 0, "pixels_raised": 0, "max_raise_m": 0.0}
+
+    # Sort ascending so higher crest elevations overwrite lower overlapping segments.
+    valid_rows = valid_rows.sort_values(elevation_col, ascending=True)
+    shapes = [
+        (geom.buffer(half_width_m), float(elev))
+        for geom, elev in zip(
+            valid_rows.geometry, valid_rows[elevation_col], strict=True
+        )
+        if geom is not None and not geom.is_empty
+    ]
+    if not shapes:
+        return out_dem, {"structures_used": 0, "pixels_raised": 0, "max_raise_m": 0.0}
+
+    crest_grid = rasterize(
+        shapes,
+        out_shape=out_dem.shape,
+        transform=transform,
+        all_touched=True,
+        fill=float(nodata_value),
+        dtype="float32",
+    )
+    valid_dem = (out_dem != nodata_value) & np.isfinite(out_dem)
+    raised = valid_dem & (crest_grid > out_dem)
+    pixels_raised = int(np.sum(raised))
+    max_raise_m = (
+        float(np.max(crest_grid[raised] - out_dem[raised]))
+        if pixels_raised > 0
+        else 0.0
+    )
+    out_dem[raised] = crest_grid[raised]
+
+    return out_dem, {
+        "structures_used": len(shapes),
+        "pixels_raised": pixels_raised,
+        "max_raise_m": round(max_raise_m, 4),
+    }
 
 
 def compute_curve_number_grid(
@@ -643,11 +729,35 @@ def prep_terrain(config_path: Path, force: bool = False) -> None:
         nodata_value=nodata_value,
     )
 
+    shoreline_src = domain.get("shoreline_structures_source")
+    if shoreline_src:
+        shore_gdf = gpd.read_file(Path(shoreline_src))
+        if shore_gdf.crs is None:
+            raise ValueError("shoreline_structures_source is missing CRS")
+        shore_utm = shore_gdf.to_crs(project_crs)
+        shore_utm = shore_utm[shore_utm.intersects(study_poly)].copy()
+        dem_bldg_m, shore_stats = enforce_shoreline_crests(
+            dem_m=dem_bldg_m,
+            transform=dst_transform,
+            nodata_value=nodata_value,
+            structures_gdf_utm=shore_utm,
+            elevation_col=str(tprep.get("shoreline_elevation_col", "Z_Mean")),
+            half_width_m=float(tprep.get("shoreline_crest_half_width_m", 2.0)),
+        )
+        print(
+            "[01_prep_terrain] Shoreline crest enforcement: "
+            f"structures={shore_stats['structures_used']}, "
+            f"pixels_raised={shore_stats['pixels_raised']}, "
+            f"max_raise_m={shore_stats['max_raise_m']}"
+        )
+
     corridors = identify_crossing_corridors(
         roads_gdf_utm=roads_utm,
         bridge_buffer_m=float(tprep.get("bridge_buffer_m", 12.0)),
         approach_sample_m=float(tprep.get("approach_sample_m", 10.0)),
     )
+    raw_max_bump = tprep.get("max_bump_m", 6.0)
+    max_bump_m = float(raw_max_bump) if raw_max_bump is not None else None
     hydro_dem_m, burn_stats = burn_underpasses_into_dem(
         dem_m=dem_bldg_m,
         transform=dst_transform,
@@ -655,12 +765,14 @@ def prep_terrain(config_path: Path, force: bool = False) -> None:
         corridors=corridors,
         carve_half_width_m=float(tprep.get("carve_half_width_m", 5.0)),
         min_bump_m=float(tprep.get("min_bump_m", 0.15)),
+        max_bump_m=max_bump_m,
     )
 
     print(
         "[01_prep_terrain] Underpass burning stats: "
         f"evaluated={burn_stats['corridors_evaluated']}, "
         f"burned={burn_stats['corridors_burned']}, "
+        f"skipped_max_bump={burn_stats['corridors_skipped_max_bump']}, "
         f"pixels_modified={burn_stats['pixels_modified']}, "
         f"max_carve_depth_m={burn_stats['max_carve_depth_m']}"
     )

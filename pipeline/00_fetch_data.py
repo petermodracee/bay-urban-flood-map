@@ -10,16 +10,18 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import geopandas as gpd
+import pandas as pd
 import rasterio
 import requests
 import shapely.wkt
 import yaml
 from pyproj import CRS, Transformer
-from shapely.geometry import LineString, MultiPolygon, Polygon
+from shapely.geometry import LineString, MultiPolygon, Point, Polygon, box
 from shapely.ops import linemerge, polygonize
 
 TNM_PRODUCTS_URL = "https://tnmaccess.nationalmap.gov/api/v1/products"
@@ -36,6 +38,9 @@ OVERPASS_MIRRORS = (
 DATASF_100YR_URL = (
     "https://data.sf.gov/api/geospatial/jzu3-4yxp?method=export&format=GeoJSON"
 )
+DATASF_311_URL = "https://data.sfgov.org/resource/vw6y-z8j6.json"
+NOAA_COOPS_URL = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
+OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 DEFAULT_HTTP_TIMEOUT_S = 180
 
 
@@ -408,6 +413,126 @@ def parse_overpass_buildings(payload: Mapping[str, Any]) -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(records, geometry=geometries, crs="EPSG:4326")
 
 
+def generate_design_tidal_hydrograph(
+    duration_hr: float,
+    timestep_min: float,
+    mhhw_m: float,
+    surge_m: float,
+    tidal_amp_m: float,
+    slr_m: float,
+    peak_time_hr: float = 12.0,
+) -> list[tuple[float, float]]:
+    """Generate a semidiurnal (12.42 hr) NAVD88 tidal hydrograph peaking at MHHW + surge + SLR."""
+    if duration_hr <= 0 or timestep_min <= 0:
+        raise ValueError("duration_hr and timestep_min must be positive.")
+    total_min = duration_hr * 60.0
+    n_steps = round(total_min / timestep_min)
+    if not math.isclose(total_min / timestep_min, n_steps, abs_tol=1e-9):
+        raise ValueError("duration_hr * 60 must be divisible by timestep_min.")
+
+    m2_period_hr = 12.42
+    mean_level_m = mhhw_m + surge_m - tidal_amp_m + slr_m
+    rows: list[tuple[float, float]] = []
+    for idx in range(n_steps + 1):
+        time_min = idx * timestep_min
+        time_hr = time_min / 60.0
+        wl_m = mean_level_m + tidal_amp_m * math.cos(
+            2.0 * math.pi * (time_hr - peak_time_hr) / m2_period_hr
+        )
+        rows.append((time_min, wl_m))
+    return rows
+
+
+def parse_noaa_coops_water_levels(
+    payload: Mapping[str, Any], reference_time_utc: str
+) -> list[tuple[float, float]]:
+    """Parse NOAA CO-OPS water_level JSON payload into (time_min, water_level_m) tuples."""
+    if "error" in payload:
+        raise ValueError(f"NOAA CO-OPS API error: {payload['error']}")
+    tref = datetime.fromisoformat(reference_time_utc).replace(tzinfo=None)
+    rows: list[tuple[float, float]] = []
+    for entry in payload.get("data") or []:
+        raw_t = entry.get("t")
+        raw_v = entry.get("v")
+        if not raw_t or raw_v in (None, ""):
+            continue
+        dt = datetime.strptime(str(raw_t), "%Y-%m-%d %H:%M")
+        time_min = (dt - tref).total_seconds() / 60.0
+        rows.append((time_min, float(raw_v)))
+    if not rows:
+        raise ValueError(
+            "NOAA CO-OPS payload returned no valid water-level observations."
+        )
+    rows.sort(key=lambda r: r[0])
+    return rows
+
+
+def parse_open_meteo_hourly_precip(
+    payload: Mapping[str, Any],
+) -> list[tuple[float, float, float]]:
+    """Parse Open-Meteo hourly precipitation JSON into (time_min, depth_mm, intensity_mm_hr)."""
+    hourly = payload.get("hourly") or {}
+    times = hourly.get("time") or []
+    precip = hourly.get("precipitation") or []
+    if not times or len(times) != len(precip):
+        raise ValueError(
+            "Open-Meteo hourly payload missing matching time/precipitation arrays."
+        )
+    t0 = datetime.fromisoformat(str(times[0]))
+    rows: list[tuple[float, float, float]] = []
+    for t_str, val in zip(times, precip, strict=True):
+        dt = datetime.fromisoformat(str(t_str))
+        time_min = (dt - t0).total_seconds() / 60.0
+        depth_mm = float(val) if val is not None else 0.0
+        rows.append((time_min, depth_mm, depth_mm))
+    return rows
+
+
+def parse_datasf_311_flood_reports(
+    records: Sequence[Mapping[str, Any]],
+) -> gpd.GeoDataFrame:
+    """Parse DataSF 311 JSON records into an EPSG:4326 Point GeoDataFrame."""
+    columns = [
+        "service_request_id",
+        "requested_datetime",
+        "service_name",
+        "service_subtype",
+        "service_details",
+        "address",
+        "neighborhood",
+    ]
+    parsed_rows: list[dict[str, Any]] = []
+    geometries: list[Point] = []
+    for rec in records:
+        try:
+            lat = float(rec["lat"])
+            lon = float(rec["long"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (math.isfinite(lat) and math.isfinite(lon)):
+            continue
+        parsed_rows.append(
+            {
+                "service_request_id": str(rec.get("service_request_id") or ""),
+                "requested_datetime": str(rec.get("requested_datetime") or ""),
+                "service_name": rec.get("service_name"),
+                "service_subtype": rec.get("service_subtype"),
+                "service_details": rec.get("service_details"),
+                "address": rec.get("address"),
+                "neighborhood": rec.get("neighborhoods_sffind_boundaries"),
+            }
+        )
+        geometries.append(Point(lon, lat))
+
+    if not parsed_rows:
+        return gpd.GeoDataFrame(
+            {col: [] for col in columns},
+            geometry=gpd.GeoSeries([], crs="EPSG:4326"),
+            crs="EPSG:4326",
+        )
+    return gpd.GeoDataFrame(parsed_rows, geometry=geometries, crs="EPSG:4326")
+
+
 def _assert_crs(actual_crs: Any, expected_epsg: str, label: str) -> None:
     if actual_crs is None:
         raise ValueError(f"{label} is missing CRS; expected {expected_epsg}")
@@ -430,6 +555,15 @@ def _write_hyetograph_csv(
             )
 
 
+def _write_tidal_csv(output_path: Path, rows: Sequence[tuple[float, float]]) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["time_min", "water_level_m"])
+        for time_min, wl_m in rows:
+            writer.writerow([f"{time_min:.1f}", f"{wl_m:.4f}"])
+
+
 def _fetch_hyetographs(cfg: Mapping[str, Any], force: bool) -> None:
     for event_key, event_cfg in cfg.get("rain_events", {}).items():
         hyetograph_file = event_cfg.get("hyetograph_file")
@@ -439,19 +573,89 @@ def _fetch_hyetographs(cfg: Mapping[str, Any], force: bool) -> None:
         if out_path.exists() and not force:
             print(f"[00_fetch_data] Skipping existing {out_path}")
             continue
-        method = event_cfg.get("hyetograph_method", "alternating_block")
-        if method != "alternating_block":
-            raise ValueError(f"Unsupported hyetograph_method for {event_key}: {method}")
-        rows = generate_alternating_block_hyetograph(
-            idf_depths_mm=event_cfg["idf_depths_mm"],
-            duration_hr=float(event_cfg["duration_hr"]),
-            timestep_min=float(event_cfg["timestep_min"]),
-        )
+        if event_cfg.get("source") == "open_meteo_archive":
+            resp = requests.get(
+                OPEN_METEO_ARCHIVE_URL,
+                params={
+                    "latitude": float(event_cfg["lat"]),
+                    "longitude": float(event_cfg["lon"]),
+                    "start_date": str(event_cfg["start_date"]),
+                    "end_date": str(event_cfg["end_date"]),
+                    "hourly": "precipitation",
+                    "timezone": "UTC",
+                },
+                timeout=DEFAULT_HTTP_TIMEOUT_S,
+            )
+            resp.raise_for_status()
+            rows = parse_open_meteo_hourly_precip(resp.json())
+        else:
+            method = event_cfg.get("hyetograph_method", "alternating_block")
+            if method != "alternating_block":
+                raise ValueError(
+                    f"Unsupported hyetograph_method for {event_key}: {method}"
+                )
+            rows = generate_alternating_block_hyetograph(
+                idf_depths_mm=event_cfg["idf_depths_mm"],
+                duration_hr=float(event_cfg["duration_hr"]),
+                timestep_min=float(event_cfg["timestep_min"]),
+            )
         _write_hyetograph_csv(out_path, rows)
         total_mm = sum(r[1] for r in rows)
         print(
             f"[00_fetch_data] Wrote {event_key} hyetograph ({len(rows)} steps, "
             f"sum={total_mm:.3f} mm) -> {out_path}"
+        )
+
+
+def _fetch_tidal_hydrographs(cfg: Mapping[str, Any], force: bool) -> None:
+    station = str(cfg.get("project", {}).get("tide_gauge", "9414290"))
+    for slr_key, slr_cfg in cfg.get("slr_increments", {}).items():
+        tide_file = slr_cfg.get("tidal_hydrograph_file")
+        if not tide_file:
+            continue
+        out_path = Path(tide_file)
+        if out_path.exists() and not force:
+            print(f"[00_fetch_data] Skipping existing {out_path}")
+            continue
+
+        tide_method = slr_cfg.get("tide_method")
+        if tide_method == "synthetic_semidiurnal":
+            rows = generate_design_tidal_hydrograph(
+                duration_hr=float(slr_cfg["duration_hr"]),
+                timestep_min=float(slr_cfg["timestep_min"]),
+                mhhw_m=float(slr_cfg["mhhw_m"]),
+                surge_m=float(slr_cfg["surge_m"]),
+                tidal_amp_m=float(slr_cfg["tidal_amp_m"]),
+                slr_m=float(slr_cfg["slr_m"]),
+                peak_time_hr=float(slr_cfg.get("peak_time_hr", 12.0)),
+            )
+        elif tide_method == "noaa_coops":
+            resp = requests.get(
+                NOAA_COOPS_URL,
+                params={
+                    "begin_date": str(slr_cfg["begin_date"]),
+                    "end_date": str(slr_cfg["end_date"]),
+                    "station": station,
+                    "product": "water_level",
+                    "datum": "NAVD",
+                    "time_zone": "gmt",
+                    "units": "metric",
+                    "format": "json",
+                },
+                timeout=DEFAULT_HTTP_TIMEOUT_S,
+            )
+            resp.raise_for_status()
+            rows = parse_noaa_coops_water_levels(
+                resp.json(), reference_time_utc=str(slr_cfg["reference_time_utc"])
+            )
+        else:
+            raise ValueError(f"Unsupported tide_method for {slr_key}: {tide_method}")
+
+        _write_tidal_csv(out_path, rows)
+        peak_m = max(r[1] for r in rows)
+        print(
+            f"[00_fetch_data] Wrote {slr_key} tidal hydrograph ({len(rows)} pts, "
+            f"peak={peak_m:.3f} m NAVD88) -> {out_path}"
         )
 
 
@@ -664,28 +868,54 @@ def _query_overpass_with_retry(query: str, max_attempts: int = 6) -> dict[str, A
     raise RuntimeError(f"All Overpass attempts failed: {last_err}") from last_err
 
 
+def _split_wgs84_bbox_for_overpass(
+    buffered_wgs84_bbox: tuple[float, float, float, float], max_span_deg: float = 0.08
+) -> list[tuple[float, float, float, float]]:
+    west, south, east, north = buffered_wgs84_bbox
+    if (east - west) <= max_span_deg and (north - south) <= max_span_deg:
+        return [buffered_wgs84_bbox]
+    mid_lon = 0.5 * (west + east)
+    mid_lat = 0.5 * (south + north)
+    return [
+        (west, south, mid_lon, mid_lat),
+        (mid_lon, south, east, mid_lat),
+        (west, mid_lat, mid_lon, north),
+        (mid_lon, mid_lat, east, north),
+    ]
+
+
 def _fetch_osm_layers(
     roads_output_path: Path,
     buildings_output_path: Path,
     buffered_wgs84_bbox: tuple[float, float, float, float],
     force: bool,
+    fetch_buildings: bool = True,
 ) -> None:
-    west, south, east, north = buffered_wgs84_bbox
-    overpass_bbox = f"{south:.6f},{west:.6f},{north:.6f},{east:.6f}"
+    tiles = _split_wgs84_bbox_for_overpass(buffered_wgs84_bbox)
 
     if roads_output_path.exists() and not force:
         print(f"[00_fetch_data] Skipping existing {roads_output_path}")
     else:
-        roads_query = (
-            "[out:json][timeout:120];\n"
-            "(\n"
-            f'  way["highway"]({overpass_bbox});\n'
-            f'  way["railway"]({overpass_bbox});\n'
-            ");\n"
-            "out geom;\n"
+        road_frames: list[gpd.GeoDataFrame] = []
+        for w, s, e, n in tiles:
+            overpass_bbox = f"{s:.6f},{w:.6f},{n:.6f},{e:.6f}"
+            roads_query = (
+                "[out:json][timeout:180];\n"
+                "(\n"
+                f'  way["highway"]({overpass_bbox});\n'
+                f'  way["railway"]({overpass_bbox});\n'
+                ");\n"
+                "out geom;\n"
+            )
+            roads_payload = _query_overpass_with_retry(roads_query)
+            road_frames.append(parse_overpass_lines(roads_payload))
+        roads_gdf = gpd.GeoDataFrame(
+            pd.concat(road_frames, ignore_index=True).drop_duplicates(
+                subset=["osm_id"]
+            ),
+            geometry="geometry",
+            crs="EPSG:4326",
         )
-        roads_payload = _query_overpass_with_retry(roads_query)
-        roads_gdf = parse_overpass_lines(roads_payload)
         if roads_gdf.empty:
             raise RuntimeError("Overpass returned zero road/rail lines.")
         _assert_crs(roads_gdf.crs, "EPSG:4326", str(roads_output_path))
@@ -696,19 +926,31 @@ def _fetch_osm_layers(
             f"{roads_output_path}"
         )
 
+    if not fetch_buildings:
+        return
     if buildings_output_path.exists() and not force:
         print(f"[00_fetch_data] Skipping existing {buildings_output_path}")
     else:
-        buildings_query = (
-            "[out:json][timeout:180];\n"
-            "(\n"
-            f'  way["building"]({overpass_bbox});\n'
-            f'  relation["building"]["type"="multipolygon"]({overpass_bbox});\n'
-            ");\n"
-            "out geom;\n"
+        bldg_frames: list[gpd.GeoDataFrame] = []
+        for w, s, e, n in tiles:
+            overpass_bbox = f"{s:.6f},{w:.6f},{n:.6f},{e:.6f}"
+            buildings_query = (
+                "[out:json][timeout:180];\n"
+                "(\n"
+                f'  way["building"]({overpass_bbox});\n'
+                f'  relation["building"]["type"="multipolygon"]({overpass_bbox});\n'
+                ");\n"
+                "out geom;\n"
+            )
+            buildings_payload = _query_overpass_with_retry(buildings_query)
+            bldg_frames.append(parse_overpass_buildings(buildings_payload))
+        buildings_gdf = gpd.GeoDataFrame(
+            pd.concat(bldg_frames, ignore_index=True).drop_duplicates(
+                subset=["osm_id"]
+            ),
+            geometry="geometry",
+            crs="EPSG:4326",
         )
-        buildings_payload = _query_overpass_with_retry(buildings_query)
-        buildings_gdf = parse_overpass_buildings(buildings_payload)
         if buildings_gdf.empty:
             raise RuntimeError("Overpass returned zero building polygons.")
         _assert_crs(buildings_gdf.crs, "EPSG:4326", str(buildings_output_path))
@@ -720,16 +962,24 @@ def _fetch_osm_layers(
         )
 
 
-def _fetch_datasf_flood_risk(output_path: Path, force: bool) -> None:
+def _fetch_geojson_to_gpkg(
+    url: str,
+    output_path: Path,
+    label: str,
+    force: bool,
+    bbox_wgs84: tuple[float, float, float, float] | None = None,
+) -> None:
     if output_path.exists() and not force:
         print(f"[00_fetch_data] Skipping existing {output_path}")
         return
 
-    resp = requests.get(DATASF_100YR_URL, timeout=DEFAULT_HTTP_TIMEOUT_S)
+    resp = requests.get(url, stream=True, timeout=DEFAULT_HTTP_TIMEOUT_S)
     resp.raise_for_status()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(suffix=".geojson", delete=False) as tmp:
-        tmp.write(resp.content)
+        for chunk in resp.iter_content(chunk_size=1024 * 1024):
+            if chunk:
+                tmp.write(chunk)
         tmp_geojson = Path(tmp.name)
 
     try:
@@ -738,11 +988,90 @@ def _fetch_datasf_flood_risk(output_path: Path, force: bool) -> None:
         tmp_geojson.unlink(missing_ok=True)
 
     if gdf.empty:
-        raise RuntimeError("DataSF 100-year flood risk export returned zero features.")
+        raise RuntimeError(f"{label} export returned zero features.")
     _assert_crs(gdf.crs, "EPSG:4326", str(output_path))
+    if bbox_wgs84 is not None:
+        gdf = gpd.clip(gdf, box(*bbox_wgs84)).copy()
+        if gdf.empty:
+            raise RuntimeError(f"{label} returned zero features inside buffered bbox.")
     gdf.to_file(output_path, driver="GPKG")
+    print(f"[00_fetch_data] Wrote {label} ({len(gdf)} features) -> {output_path}")
+
+
+def _fetch_sfei_shoreline_structures(
+    domain: Mapping[str, Any],
+    buffered_utm_bbox: tuple[float, float, float, float],
+    project_crs: str,
+    force: bool,
+) -> None:
+    out_raw = domain.get("shoreline_structures_source")
+    gdb_raw = domain.get("sfei_raw_gdb_path")
+    if not out_raw or not gdb_raw:
+        return
+    out_path = Path(out_raw)
+    if out_path.exists() and not force:
+        print(f"[00_fetch_data] Skipping existing {out_path}")
+        return
+    gdb_path = Path(gdb_raw)
+    if not gdb_path.exists():
+        raise FileNotFoundError(
+            f"SFEI Shore Inventory GDB not found at {gdb_path}. "
+            "See docs/DATA_SOURCES.md for manual download instructions."
+        )
+    layer = domain.get("sfei_raw_layer")
+    gdf = gpd.read_file(gdb_path, layer=layer) if layer else gpd.read_file(gdb_path)
+    if gdf.crs is None:
+        raise ValueError(f"SFEI layer in {gdb_path} has no CRS")
+    gdf_utm = gdf.to_crs(project_crs)
+    clipped = gpd.clip(gdf_utm, box(*buffered_utm_bbox)).copy()
+    if clipped.empty:
+        raise RuntimeError("No SFEI shoreline structures intersect buffered domain.")
+    gdf_wgs84 = clipped.to_crs("EPSG:4326")
+    _assert_crs(gdf_wgs84.crs, "EPSG:4326", str(out_path))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    gdf_wgs84.to_file(out_path, driver="GPKG")
     print(
-        f"[00_fetch_data] Wrote DataSF 100-yr flood risk ({len(gdf)} features) -> {output_path}"
+        f"[00_fetch_data] Extracted SFEI shoreline structures ({len(gdf_wgs84)} features) -> {out_path}"
+    )
+
+
+def _fetch_datasf_311(
+    domain: Mapping[str, Any],
+    buffered_wgs84_bbox: tuple[float, float, float, float],
+    force: bool,
+) -> None:
+    out_raw = domain.get("validation_311_reference")
+    if not out_raw:
+        return
+    out_path = Path(out_raw)
+    if out_path.exists() and not force:
+        print(f"[00_fetch_data] Skipping existing {out_path}")
+        return
+    start_utc = str(domain["validation_311_start_utc"])
+    end_utc = str(domain["validation_311_end_utc"])
+    where_clause = (
+        f"requested_datetime >= '{start_utc}' AND requested_datetime < '{end_utc}' "
+        "AND (lower(service_name) like '%flood%' OR lower(service_subtype) like '%flood%' "
+        "OR lower(service_details) like '%flood%' OR lower(service_name) like '%sewer%' "
+        "OR lower(service_subtype) like '%catch%')"
+    )
+    resp = requests.get(
+        DATASF_311_URL,
+        params={"$where": where_clause, "$limit": 5000},
+        timeout=DEFAULT_HTTP_TIMEOUT_S,
+    )
+    resp.raise_for_status()
+    gdf = parse_datasf_311_flood_reports(resp.json())
+    if gdf.empty:
+        raise RuntimeError(
+            f"DataSF 311 returned zero flood records for {start_utc}..{end_utc}"
+        )
+    gdf = gpd.clip(gdf, box(*buffered_wgs84_bbox)).copy()
+    _assert_crs(gdf.crs, "EPSG:4326", str(out_path))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    gdf.to_file(out_path, driver="GPKG")
+    print(
+        f"[00_fetch_data] Wrote DataSF 311 flood reports ({len(gdf)} features) -> {out_path}"
     )
 
 
@@ -767,6 +1096,7 @@ def fetch_data(config_path: Path, force: bool = False) -> None:
     print(f"[00_fetch_data] Buffered WGS84 bbox: {buffered_wgs84_bbox}")
 
     _fetch_hyetographs(cfg, force=force)
+    _fetch_tidal_hydrographs(cfg, force=force)
     _fetch_dem(
         output_path=Path(domain["dem_source"]),
         buffered_utm_bbox=buffered_utm_bbox,
@@ -792,14 +1122,37 @@ def fetch_data(config_path: Path, force: bool = False) -> None:
         buffered_wgs84_bbox=buffered_wgs84_bbox,
         force=force,
     )
+    buildings_url = domain.get("buildings_url")
     _fetch_osm_layers(
         roads_output_path=Path(domain["roads_rail_source"]),
         buildings_output_path=Path(domain["buildings_source"]),
         buffered_wgs84_bbox=buffered_wgs84_bbox,
         force=force,
+        fetch_buildings=not bool(buildings_url),
     )
-    _fetch_datasf_flood_risk(
+    if buildings_url:
+        _fetch_geojson_to_gpkg(
+            url=str(buildings_url),
+            output_path=Path(domain["buildings_source"]),
+            label="DataSF building footprints",
+            force=force,
+            bbox_wgs84=buffered_wgs84_bbox,
+        )
+    _fetch_sfei_shoreline_structures(
+        domain=domain,
+        buffered_utm_bbox=buffered_utm_bbox,
+        project_crs=project_crs,
+        force=force,
+    )
+    _fetch_geojson_to_gpkg(
+        url=DATASF_100YR_URL,
         output_path=Path(domain["validation_reference"]),
+        label="DataSF 100-yr flood risk",
+        force=force,
+    )
+    _fetch_datasf_311(
+        domain=domain,
+        buffered_wgs84_bbox=buffered_wgs84_bbox,
         force=force,
     )
     print("[00_fetch_data] Phase 0 fetch complete.")

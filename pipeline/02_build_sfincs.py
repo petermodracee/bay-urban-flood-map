@@ -11,11 +11,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import geopandas as gpd
+import numpy as np
 import pandas as pd
 import rasterio
 import yaml
 from hydromt_sfincs import SfincsModel
 from pyproj import CRS
+from shapely.geometry import Point
 
 
 def assert_crs_equals(actual_crs: Any, expected_crs: str, label: str) -> None:
@@ -175,6 +178,126 @@ def build_precip_series(
     return series
 
 
+def resolve_reference_time_utc(
+    sfincs_cfg: Mapping[str, Any],
+    rain_cfg: Mapping[str, Any],
+    slr_cfg: Mapping[str, Any],
+) -> datetime:
+    """Resolve naive UTC reference timestamp giving priority to event-specific overrides."""
+    raw_ref = (
+        slr_cfg.get("reference_time_utc")
+        or rain_cfg.get("reference_time_utc")
+        or sfincs_cfg["reference_time_utc"]
+    )
+    tref = datetime.fromisoformat(str(raw_ref)) if isinstance(raw_ref, str) else raw_ref
+    return tref.replace(tzinfo=None)
+
+
+def build_waterlevel_forcing_inputs(
+    tidal_rows: Sequence[Mapping[str, Any]],
+    reference_time_utc: str | datetime,
+    duration_hr: float,
+    location_xy: tuple[float, float],
+    project_crs: str,
+) -> tuple[pd.DataFrame, gpd.GeoDataFrame]:
+    """Build water-level forcing timeseries (bzs DataFrame) and gauge point GeoDataFrame."""
+    if duration_hr <= 0:
+        raise ValueError(f"duration_hr must be positive, got {duration_hr}")
+    if not tidal_rows:
+        raise ValueError("tidal_rows must not be empty.")
+    assert_crs_equals(project_crs, "EPSG:26910", "config.project.crs")
+
+    tref = (
+        datetime.fromisoformat(reference_time_utc)
+        if isinstance(reference_time_utc, str)
+        else reference_time_utc
+    ).replace(tzinfo=None)
+
+    times: list[datetime] = []
+    values: list[float] = []
+    for row in tidal_rows:
+        t_min = float(row["time_min"])
+        wl_m = float(row["water_level_m"])
+        times.append(tref + timedelta(minutes=t_min))
+        values.append(wl_m)
+
+    tstop = tref + timedelta(hours=duration_hr)
+    if times[-1] < tstop:
+        times.append(tstop)
+        values.append(values[-1])
+
+    bzs_df = pd.DataFrame({1: values}, index=pd.DatetimeIndex(times, name="time"))
+    bnd_gdf = gpd.GeoDataFrame(
+        {"index": [1]},
+        geometry=[Point(float(location_xy[0]), float(location_xy[1]))],
+        crs=project_crs,
+    )
+    return bzs_df, bnd_gdf
+
+
+def _read_tidal_hydrograph_csv(csv_path: Path) -> list[dict[str, float]]:
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Tidal hydrograph CSV not found: {csv_path}")
+    with csv_path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        return [
+            {
+                "time_min": float(row["time_min"]),
+                "water_level_m": float(row["water_level_m"]),
+            }
+            for row in reader
+        ]
+
+
+def write_sfincs_waterlevel_files(
+    run_dir: Path,
+    bzs_df: pd.DataFrame,
+    bnd_gdf: gpd.GeoDataFrame,
+    tref: datetime,
+) -> tuple[Path, Path]:
+    """Write SFINCS ASCII boundary locations (sfincs.bnd) and waterlevels (sfincs.bzs)."""
+    run_dir.mkdir(parents=True, exist_ok=True)
+    bnd_path = run_dir / "sfincs.bnd"
+    bzs_path = run_dir / "sfincs.bzs"
+
+    with bnd_path.open("w", encoding="utf-8") as f:
+        for geom in bnd_gdf.geometry:
+            f.write(f"{geom.x:.1f} {geom.y:.1f}\n")
+
+    with bzs_path.open("w", encoding="utf-8") as f:
+        for ts, row in bzs_df.iterrows():
+            time_s = (pd.Timestamp(ts).to_pydatetime() - tref).total_seconds()
+            wl_vals = " ".join(f"{float(v):8.3f}" for v in row.to_numpy())
+            f.write(f"{time_s:10.1f} {wl_vals}\n")
+
+    return bnd_path, bzs_path
+
+
+def compute_valid_active_mask(
+    dem_2m: np.ndarray,
+    nodata_value: float,
+    nr_subgrid_pixels: int,
+    y_ascending: bool,
+) -> np.ndarray:
+    """Downsample 2 m DEM validity onto the SFINCS grid matching SFINCS y orientation."""
+    if nr_subgrid_pixels < 1:
+        raise ValueError(f"nr_subgrid_pixels must be >= 1, got {nr_subgrid_pixels}")
+    height, width = dem_2m.shape
+    if height % nr_subgrid_pixels != 0 or width % nr_subgrid_pixels != 0:
+        raise ValueError(
+            f"DEM shape {dem_2m.shape} is not divisible by nr_subgrid_pixels={nr_subgrid_pixels}"
+        )
+    nmax = height // nr_subgrid_pixels
+    mmax = width // nr_subgrid_pixels
+    valid_fine = (dem_2m != nodata_value) & np.isfinite(dem_2m)
+    valid_coarse = valid_fine.reshape(
+        nmax, nr_subgrid_pixels, mmax, nr_subgrid_pixels
+    ).any(axis=(1, 3))
+    if y_ascending:
+        return np.flipud(valid_coarse)
+    return valid_coarse
+
+
 def build_docker_run_command(run_dir: Path, docker_image: str) -> list[str]:
     """Construct the docker run command mounting run_dir at /data."""
     return [
@@ -248,9 +371,8 @@ def _build_and_run_single_scenario(
 
     rain_cfg = cfg["rain_events"][rain_key]
     slr_cfg = cfg["slr_increments"][slr_key]
-    if float(slr_cfg.get("slr_m", 0.0)) > 0.0 and not slr_cfg.get(
-        "tidal_hydrograph_file"
-    ):
+    tidal_file = slr_cfg.get("tidal_hydrograph_file")
+    if float(slr_cfg.get("slr_m", 0.0)) > 0.0 and not tidal_file:
         print(
             f"[02_build_sfincs] Note: {scenario_id} has slr_m={slr_cfg['slr_m']} "
             "without tidal_hydrograph_file; building pluvial baseline boundary setup."
@@ -265,10 +387,9 @@ def _build_and_run_single_scenario(
 
     hyetograph_rows = _read_hyetograph_csv(Path(rain_cfg["hyetograph_file"]))
     duration_hr = float(rain_cfg["duration_hr"])
-    tref = datetime.fromisoformat(str(sfincs_cfg["reference_time_utc"])).replace(
-        tzinfo=None
-    )
+    tref = resolve_reference_time_utc(sfincs_cfg, rain_cfg, slr_cfg)
     tstop = tref + timedelta(hours=duration_hr)
+    dtmaxout_s = max(float(sfincs_cfg.get("dtmaxout_s", 86400.0)), duration_hr * 3600.0)
 
     precip_series = build_precip_series(
         hyetograph_rows=hyetograph_rows,
@@ -284,7 +405,7 @@ def _build_and_run_single_scenario(
         f"drainage={drainage_rate_mm_hr:.1f} mm/hr -> {run_dir}"
     )
 
-    sf = SfincsModel(root=str(run_dir), mode="w")
+    sf = SfincsModel(root=str(run_dir), mode="w+")
     sf.data_catalog._fallback_lib = None
     sf.setup_grid(
         x0=grid_spec["x0"],
@@ -298,8 +419,47 @@ def _build_and_run_single_scenario(
     )
     sf.setup_dep(datasets_dep=[{"elevtn": hydro_dem_path.resolve()}])
     sf.setup_mask_active(zmin=-50.0, reset_mask=True)
-    if bool(sfincs_cfg.get("outflow_perimeter_bounds", True)):
-        sf.setup_mask_bounds(btype="outflow", reset_bounds=True)
+
+    with rasterio.open(hydro_dem_path) as dem_ds:
+        dem_arr = dem_ds.read(1)
+        dem_nodata = float(dem_ds.nodata) if dem_ds.nodata is not None else float("nan")
+    if dem_arr.shape == (
+        grid_spec["nmax"] * grid_spec["nr_subgrid_pixels"],
+        grid_spec["mmax"] * grid_spec["nr_subgrid_pixels"],
+    ):
+        y_coords = sf.grid["msk"].coords["y"].values.ravel()
+        y_ascending = bool(y_coords[0] < y_coords[-1])
+        valid_mask = compute_valid_active_mask(
+            dem_2m=dem_arr,
+            nodata_value=dem_nodata,
+            nr_subgrid_pixels=grid_spec["nr_subgrid_pixels"],
+            y_ascending=y_ascending,
+        )
+        da_msk = sf.grid["msk"].where(valid_mask, np.uint8(0)).astype(np.uint8)
+        sf.set_grid(da_msk, name="msk")
+        if np.any(da_msk >= 1):
+            sf.set_geoms(da_msk.where(da_msk <= 1, 1).raster.vectorize(), "region")
+
+    outflow_bounds = bool(sfincs_cfg.get("outflow_perimeter_bounds", True))
+    if tidal_file:
+        coastal_zmax_m = float(sfincs_cfg.get("coastal_bound_zmax_m", 0.5))
+        sf.setup_mask_bounds(
+            btype="waterlevel",
+            zmax=coastal_zmax_m,
+            reset_bounds=True,
+        )
+        if outflow_bounds:
+            sf.setup_mask_bounds(
+                btype="outflow",
+                zmin=coastal_zmax_m,
+                reset_bounds=False,
+            )
+    elif outflow_bounds:
+        sf.setup_mask_bounds(
+            btype="outflow",
+            zmin=-9999.0,
+            reset_bounds=False,
+        )
 
     sf.setup_subgrid(
         datasets_dep=[{"elevtn": hydro_dem_path.resolve()}],
@@ -313,24 +473,50 @@ def _build_and_run_single_scenario(
         antecedent_moisture=None,
         reproj_method=str(sfincs_cfg.get("cn_reproj_method", "med")),
     )
-    sf.setup_config(
-        tref=tref,
-        tstart=tref,
-        tstop=tstop,
-        dtout=float(sfincs_cfg.get("dtout_s", 3600.0)),
-        dtmaxout=float(sfincs_cfg.get("dtmaxout_s", 86400.0)),
-        alpha=float(sfincs_cfg.get("alpha", 0.5)),
-        huthresh=float(sfincs_cfg.get("huthresh_m", 0.01)),
-        advection=int(sfincs_cfg.get("advection", 1)),
-        precipfile="sfincs.prp",
-    )
+    config_kwargs: dict[str, Any] = {
+        "tref": tref,
+        "tstart": tref,
+        "tstop": tstop,
+        "dtout": float(sfincs_cfg.get("dtout_s", 3600.0)),
+        "dtmaxout": dtmaxout_s,
+        "alpha": float(sfincs_cfg.get("alpha", 0.5)),
+        "huthresh": float(sfincs_cfg.get("huthresh_m", 0.01)),
+        "advection": int(sfincs_cfg.get("advection", 1)),
+        "precipfile": "sfincs.prp",
+    }
+    if tidal_file:
+        config_kwargs["bndfile"] = "sfincs.bnd"
+        config_kwargs["bzsfile"] = "sfincs.bzs"
+
+    sf.setup_config(**config_kwargs)
     sf.set_forcing(precip_series.to_xarray(), name="precip")
     sf.write()
+
+    if tidal_file:
+        tidal_rows = _read_tidal_hydrograph_csv(Path(tidal_file))
+        xmin, ymin, xmax, ymax = (float(v) for v in domain["bbox_epsg26910"])
+        bzs_df, bnd_gdf = build_waterlevel_forcing_inputs(
+            tidal_rows=tidal_rows,
+            reference_time_utc=tref,
+            duration_hr=duration_hr,
+            location_xy=(0.5 * (xmin + xmax), 0.5 * (ymin + ymax)),
+            project_crs=project_crs,
+        )
+        write_sfincs_waterlevel_files(
+            run_dir=run_dir,
+            bzs_df=bzs_df,
+            bnd_gdf=bnd_gdf,
+            tref=tref,
+        )
 
     inp_path = run_dir / "sfincs.inp"
     prp_path = run_dir / "sfincs.prp"
     if not inp_path.exists() or not prp_path.exists():
         raise RuntimeError(f"Expected SFINCS build files missing in {run_dir}")
+    if tidal_file and (
+        not (run_dir / "sfincs.bnd").exists() or not (run_dir / "sfincs.bzs").exists()
+    ):
+        raise RuntimeError(f"Expected SFINCS tidal boundary files missing in {run_dir}")
 
     if skip_run:
         print(f"[02_build_sfincs] Built model files in {run_dir} (--skip-run enabled).")
