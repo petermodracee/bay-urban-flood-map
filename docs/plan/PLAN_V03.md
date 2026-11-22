@@ -3,9 +3,9 @@
 **Goal:** Host `data/web_outputs/` (`EPSG:3857` COGs, GeoJSON overlays, `manifest.json`) on object storage with HTTP `Range` + CORS support and deploy `web/` as a zero-backend static site.
 
 ## Phase 1: Web Viewer Base-URL Configuration (`web/`)
-- [ ] Add `VITE_DATA_BASE_URL` support in `web/` (defaulting to `/data` for local Vite dev/preview so local workflows keep working with zero setup).
-- [ ] Resolve `manifest.json`, GeoJSON overlay URLs, and COG URLs cleanly against `VITE_DATA_BASE_URL` (supporting both relative `/data/...` paths and absolute `https://...` bucket URLs).
-- [ ] Add/update Node unit tests (`node --test src/*.test.js`) covering local `/data` vs. remote `VITE_DATA_BASE_URL` resolution.
+- [x] Add `VITE_DATA_BASE_URL` support in `web/` (defaulting to `/data` for local Vite dev/preview so local workflows keep working with zero setup).
+- [x] Resolve `manifest.json`, GeoJSON overlay URLs, and COG URLs cleanly against `VITE_DATA_BASE_URL` (supporting both relative `/data/...` paths and absolute `https://...` bucket URLs).
+- [x] Add/update Node unit tests (`node --test src/*.test.js`) covering local `/data` vs. remote `VITE_DATA_BASE_URL` resolution.
 
 ## Phase 2: Object Storage & HTTP Range Configuration (Cloudflare R2 / S3)
 - [ ] Configure bucket CORS policy allowing `GET` and `HEAD` from the deployed frontend origin(s), exposing `Accept-Ranges`, `Content-Range`, `Content-Length`, and `ETag` headers for `maplibre-cog-protocol`.

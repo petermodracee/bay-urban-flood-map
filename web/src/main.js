@@ -5,6 +5,7 @@ import {
 	locationValues,
 	setColorFunction,
 } from "@geomatico/maplibre-cog-protocol";
+import { resolveDataAssetUrl } from "./dataUrls.js";
 import {
 	createFloodColorRamp,
 	formatDepth,
@@ -22,9 +23,22 @@ import {
 import "./style.css";
 
 const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
-const MANIFEST_URL = `${window.location.origin}/data/manifest.json`;
-const BENCHMARK_GEOJSON_URL = `${window.location.origin}/data/sf_sfpuc_100yr_benchmark.geojson`;
-const FLOODS_311_GEOJSON_URL = `${window.location.origin}/data/sf_311_20221231_floods.geojson`;
+const DATA_BASE_URL = import.meta.env.VITE_DATA_BASE_URL;
+const MANIFEST_URL = resolveDataAssetUrl(
+	"manifest.json",
+	DATA_BASE_URL,
+	window.location.origin,
+);
+const BENCHMARK_GEOJSON_URL = resolveDataAssetUrl(
+	"sf_sfpuc_100yr_benchmark.geojson",
+	DATA_BASE_URL,
+	window.location.origin,
+);
+const FLOODS_311_GEOJSON_URL = resolveDataAssetUrl(
+	"sf_311_20221231_floods.geojson",
+	DATA_BASE_URL,
+	window.location.origin,
+);
 
 const FLOOD_SOURCE_ID = "flood-cog";
 const FLOOD_LAYER_ID = "flood-depth-layer";
@@ -74,11 +88,7 @@ map.addControl(
 const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: true });
 
 function resolveDataUrl(urlOrPath) {
-	if (/^https?:\/\//i.test(urlOrPath)) {
-		return urlOrPath;
-	}
-	const normalized = urlOrPath.startsWith("/") ? urlOrPath : `/${urlOrPath}`;
-	return `${window.location.origin}${normalized}`;
+	return resolveDataAssetUrl(urlOrPath, DATA_BASE_URL, window.location.origin);
 }
 
 function escapeHtml(text) {
