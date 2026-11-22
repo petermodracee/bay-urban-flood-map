@@ -1,14 +1,14 @@
 # bay-urban-flood-map
 
-An experimental open-source urban stormwater and compound sea level rise (SLR) flood model and serverless web viewer for the San Francisco Bay Area, built with **HydroMT-SFINCS** and **MapLibre GL JS + Cloud Optimized GeoTIFFs (COGs)**.
+An open-source urban stormwater and compound sea level rise (SLR) flood model and serverless web viewer for the San Francisco Bay Area, built with **HydroMT-SFINCS** and **MapLibre GL JS + Cloud Optimized GeoTIFFs (COGs)**.
 
-**Status:** `v0.1` in progress — building and validating a ~15 km² San Francisco benchmark against the **SFPUC 100-Year Storm Flood Risk Map** before scaling to Bay-margin MS4 watersheds.
+**Status:** `v0.2` complete — full San Francisco citywide compound SLR (`+0/+1/+3/+5 ft`) + Dec 31, 2022 Atmospheric River hindcast, dual validation against SFPUC & 424 SF 311 flood reports, derived SLR delta COGs, and interactive MapLibre viewer. Next up: `v0.3` static cloud hosting ([`docs/plan/PLAN_V03.md`](docs/plan/PLAN_V03.md)), `v0.4` SF literature-backed upgrades & ablation ([`docs/plan/PLAN_V04.md`](docs/plan/PLAN_V04.md)), and `v0.5` East/South Bay MS4 expansion.
 
-> **Note:** This is an experimental 2D overland pooling and tidal-lock model. It is not a parcel-level storm-pipe capacity model or a regulatory FEMA flood map.
+> **Note:** This is a screening-level 2D overland pooling and coastal-compound flood model (see [`docs/METHODS.md`](docs/METHODS.md)). It is not a 1D parcel-level storm-pipe capacity model or a regulatory FEMA flood map.
 
-## Benchmark Scenarios (`configs/sf_benchmark.yml`)
+## Citywide Scenarios (`configs/sf_citywide.yml`)
 
-10-year and 100-year historical design rain events crossed with fixed 0, +1, +3, and +5 ft water-level increments mapped to **2024 California Ocean Protection Council (OPC)** guidance (SF gauge, 2000 baseline):
+10-year (`90.4 mm`) and 100-year (`144.0 mm`) NOAA Atlas 14 design storms crossed with fixed `0`, `+1`, `+3`, and `+5 ft` water-level increments mapped to **2024 California Ocean Protection Council (OPC)** guidance (NOAA SF gauge `9414290`, 2000 baseline), plus the **Dec 31, 2022 Atmospheric River** (`128.5 mm` / 48 hr) hindcast:
 
 | SLR Increment | 2024 CA OPC Mapping |
 | :--- | :--- |
@@ -22,23 +22,31 @@ An experimental open-source urban stormwater and compound sea level rise (SLR) f
 ```text
 ├── AGENTS.md                 # Coding agent invariants & workflow guardrails
 ├── docs/
-│   ├── DECISIONS.md          # Architecture & design rationale
-│   ├── MODEL_SPEC.md         # Hydrodynamic modeling, datums, & validation
+│   ├── METHODS.md            # Scientific methodology, equations, limitations, & DOIs
+│   ├── MODEL_SPEC.md         # Operational pipeline spec, datums, & domain traps
 │   ├── DATA_CONTRACTS.md     # Shared COG, vector, & manifest schemas
+│   ├── DATA_SOURCES.md       # Upstream dataset licenses & attribution
+│   ├── DECISIONS.md          # Architecture & calibration design rationale
 │   ├── WEB_SPEC.md           # MapLibre frontend & UI specification
+│   ├── reports/
+│   │   └── sf_v02_validation.md  # v0.2 citywide SFPUC & 311 3-way validation report
 │   └── plan/
 │       ├── ROADMAP.md        # Milestone index & future backlog
-│       ├── PLAN_V01.md       # v0.1 SF slice checklist (complete)
-│       └── PLAN_V02.md       # v0.2 citywide SF compound SLR plan
+│       ├── PLAN_V01.md       # v0.1 ~20 km² SF slice checklist (complete)
+│       ├── PLAN_V02.md       # v0.2 citywide SF compound SLR plan (complete)
+│       ├── PLAN_V03.md       # v0.3 static COG hosting & deployment plan
+│       └── PLAN_V04.md       # v0.4 SF literature upgrades & ablation plan
 ├── configs/
-│   └── sf_benchmark.yml      # Rain × SLR scenario matrix & domain config
+│   ├── sf_citywide.yml       # Citywide SF (20 m / 2 m) + AR hindcast config
+│   └── sf_benchmark.yml      # v0.1 ~20 km² SF benchmark slice config
 ├── pipeline/
-│   ├── 01_prep_terrain.py    # DEM hydro-enforcement, roughness, & infiltration
+│   ├── 00_fetch_data.py      # Fetch/cache DEM, NLCD, HSG, OSM, NOAA tides, & 311
+│   ├── 01_prep_terrain.py    # Underpass carving, SFEI crests, roughness, & CN grids
 │   ├── 02_build_sfincs.py    # HydroMT-SFINCS builder & Docker solver runner
-│   ├── 03_validate_sf.py     # Validation against SFPUC 100-yr flood map
-│   └── 04_export_cog.py      # Downscale, mask, & export EPSG:3857 COGs
+│   ├── 03_validate_sf.py     # Dual SFPUC & 311 validation + report generator
+│   └── 04_export_cog.py      # Downscale, SLR deltas, GeoJSON, & EPSG:3857 COGs
 ├── web/                      # Vite + MapLibre GL + maplibre-cog-protocol viewer
-├── data/                     # Local raw/processed/web outputs (git-ignored)
+├── data/                     # Local raw/processed/runs/web outputs (git-ignored)
 └── environment.yml           # Conda environment (conda-forge)
 ```
 
@@ -55,10 +63,11 @@ An experimental open-source urban stormwater and compound sea level rise (SLR) f
 conda env create -f environment.yml
 conda activate bay-urban-flood-map
 
-python pipeline/01_prep_terrain.py --config configs/sf_benchmark.yml
-python pipeline/02_build_sfincs.py --config configs/sf_benchmark.yml
-python pipeline/03_validate_sf.py --config configs/sf_benchmark.yml
-python pipeline/04_export_cog.py --config configs/sf_benchmark.yml
+python pipeline/00_fetch_data.py --config configs/sf_citywide.yml
+python pipeline/01_prep_terrain.py --config configs/sf_citywide.yml
+python pipeline/02_build_sfincs.py --config configs/sf_citywide.yml --all-scenarios
+python pipeline/03_validate_sf.py --config configs/sf_citywide.yml
+python pipeline/04_export_cog.py --config configs/sf_citywide.yml --all-scenarios
 ```
 
 Run tests and linter:
@@ -75,11 +84,12 @@ npm install
 npm run dev
 ```
 
-Lint and build:
+Test, lint, and build:
 ```bash
 cd web
+node --test src/*.test.js
 npm run lint
 npm run build
 ```
 
-Exported `EPSG:3857` COGs (e.g., `sf_100yr_slr0ft_depth_3857.tif`) and `manifest.json` are written to `data/web_outputs/` per [`docs/DATA_CONTRACTS.md`](docs/DATA_CONTRACTS.md).
+Exported `EPSG:3857` COGs (e.g., `sf_citywide_100yr_slr0ft_depth_3857.tif`, `sf_citywide_100yr_slr5ft_delta_3857.tif`), GeoJSON overlays, and `manifest.json` are written to `data/web_outputs/` per [`docs/DATA_CONTRACTS.md`](docs/DATA_CONTRACTS.md).
