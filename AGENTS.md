@@ -7,7 +7,7 @@ The repo has two decoupled halves connected only by static files in `data/web_ou
 - **`pipeline/` (Python + Docker):** Uses `HydroMT-SFINCS` (2D rain-on-grid with 1m–2m subgrid terrain) to simulate storm + SLR scenarios and export `EPSG:3857` Cloud Optimized GeoTIFFs (COGs).
 - **`web/` (Vite + MapLibre GL JS):** A serverless static web viewer that streams those COGs directly in the browser with client-side color ramps and click-to-query flood depths.
 
-**Current Focus (v0.1):** Building and validating an end-to-end vertical slice on a ~15 km² San Francisco test area against the SFPUC 100-Year Storm Flood Risk Map before expanding to Bay-margin MS4 watersheds.
+**Current Focus:** `v0.2` citywide San Francisco compound SLR + Dec 31, 2022 AR hindcast complete (`main`); preparing `v0.3` static hosting and `v0.4` Bay-margin MS4 pilot + peer-reviewed upgrades (`docs/plan/PLAN_V04.md`).
 
 ## Hard Invariants
 - **Python Environment:** Use `conda-forge` strictly (`environment.yml`). Do not mix `pip` geospatial binaries with conda packages.
@@ -18,8 +18,10 @@ The repo has two decoupled halves connected only by static files in `data/web_ou
 - **Explicit Non-Goals (v0.1):** No 1D municipal storm pipe network modeling; no climate-adjusted future rainfall intensity.
 
 ## Context Routing (Read Before Editing)
+- **Scientific methodology & citations:** Read `docs/METHODS.md`.
+- **Upstream dataset licenses & provenance:** Read `docs/DATA_SOURCES.md`.
 - **Project rationale & tradeoffs:** Read `docs/DECISIONS.md`.
-- **Current milestone checklist:** Read `docs/plan/ROADMAP.md` and the active milestone plan (`docs/plan/PLAN_V02.md`, or `docs/plan/PLAN_V01.md` for v0.1).
+- **Current milestone checklist:** Read `docs/plan/ROADMAP.md` and the active milestone plan (`docs/plan/PLAN_V04.md`, `docs/plan/PLAN_V02.md`, or `docs/plan/PLAN_V01.md`).
 - **Editing `pipeline/` or `configs/`:** Read `docs/MODEL_SPEC.md` and `docs/DATA_CONTRACTS.md`.
 - **Editing `web/`:** Read `docs/WEB_SPEC.md` and `docs/DATA_CONTRACTS.md`.
 - **Modifying file names, CRS, NoData rules, or JSON outputs:** Update `docs/DATA_CONTRACTS.md` first.
