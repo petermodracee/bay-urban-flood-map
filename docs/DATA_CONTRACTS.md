@@ -28,8 +28,9 @@ Every flood raster exported by `04_export_cog.py` for the web frontend must meet
 
 ## 3. Vector Overlay Contract
 
-- **Format:** Static `PMTiles` (`.pmtiles`) in `EPSG:4326` (WGS84) for regional overlays, or lightweight GeoJSON (`< 2 MB`) for v0.1 SF benchmark polygons.
-- **Required Benchmark Layer (v0.1):** `sf_sfpuc_100yr_benchmark.geojson` (simplified to 1m tolerance if needed for browser performance).
+- **Format:** Static `PMTiles` (`.pmtiles`) in `EPSG:4326` (WGS84) for regional overlays, or lightweight GeoJSON (`< 2 MB`) for SF benchmark polygons and 311 flood reports.
+- **Required Benchmark Layer (v0.1+):** `sf_sfpuc_100yr_benchmark.geojson` (simplified to 1m tolerance if needed for browser performance).
+- **Optional Historical Point Overlay (v0.2+):** `sf_311_20221231_floods.geojson` (`EPSG:4326` points with `service_request_id`, `requested_datetime`, `service_subtype`, `service_details`, `address`, `neighborhood`).
 
 ## 4. Validation Summary Contract (`validation_summary.json`)
 
@@ -68,3 +69,5 @@ The web frontend reads this file to populate dropdowns and resolve COG URLs with
   ]
 }
 ```
+
+- **v0.2+ Extensions:** Historical hindcasts use string storm IDs (e.g., `"storm": "ar_20221231"`), derived SLR delta rasters use `"metric": "delta"`, and entries may include optional `"opc_2024_pathway"` and `"opc_2024_horizon"` metadata strings for UI display.

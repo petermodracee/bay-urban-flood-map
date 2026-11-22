@@ -35,9 +35,9 @@ Goal: Scale the calibrated v0.1 pipeline (`drainage_rate_mm_hr: 5.0`, `manning_n
 - [x] Once Phase 3 validation passes, run the remaining 7 scenarios (`sf_100yr_slr{1,3,5}ft` and `sf_10yr_slr{0,1,3,5}ft`) with dynamic NOAA `9414290` tidal boundary conditions.
 
 ## Phase 4: Derived SLR Deltas & Multi-Scenario COG Export (`pipeline/04_export_cog.py`)
-- [ ] Compute derived **drainage-lock delta grids** (`delta = max(0, depth(storm + SLR) - depth(storm + 0 ft SLR))`) for `+1 / +3 / +5 ft` SLR across `10yr` and `100yr` storms.
-- [ ] Export `EPSG:3857` COGs for all `depth`, `delta`, and `sf_ar_20221231` scenarios to `data/web_outputs/`.
-- [ ] Export citywide simplified `sf_sfpuc_100yr_benchmark.geojson` (`< 2 MB`), `sf_311_20221231_floods.geojson`, and multi-scenario `manifest.json` (including `2024 CA OPC` horizon metadata if needed in UI labels).
+- [x] Compute derived **drainage-lock delta grids** (`delta = max(0, depth(storm + SLR) - depth(storm + 0 ft SLR))`) for `+1 / +3 / +5 ft` SLR across `10yr` and `100yr` storms.
+- [x] Export `EPSG:3857` COGs for all `depth`, `delta`, and `sf_ar_20221231` scenarios to `data/web_outputs/`.
+- [x] Export citywide simplified `sf_sfpuc_100yr_benchmark.geojson` (`< 2 MB`), `sf_311_20221231_floods.geojson`, and multi-scenario `manifest.json` (including `2024 CA OPC` horizon metadata if needed in UI labels).
 
 ## Phase 5: Compound SLR & Dual-Validation Viewer (`web/`)
 - [ ] Upgrade control panel to select **Storm** (`10-Yr`, `100-Yr`, `Dec 31, 2022 AR`) × **SLR** (`Today`, `+1 ft`, `+3 ft`, `+5 ft` with 2024 CA OPC pathway labels) × **Metric** (`Total Depth` vs. `Added SLR Delta`).
