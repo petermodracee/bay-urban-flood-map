@@ -7,7 +7,7 @@ import importlib.util
 import json
 import math
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -21,12 +21,22 @@ from hydromt_sfincs import SfincsModel
 from pyproj import CRS
 from rasterio.enums import Resampling
 from rasterio.features import rasterize
-from rasterio.transform import Affine, from_origin
+from rasterio.transform import Affine, from_origin, rowcol
 from rasterio.warp import reproject
-from scipy import ndimage
+from scipy import ndimage, stats
 from shapely.geometry import box
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+SF_NEIGHBORHOOD_BOXES_UTM: dict[str, tuple[float, float, float, float]] = {
+    "Mission": (550400.0, 4177000.0, 552400.0, 4179600.0),
+    "Alemany": (550000.0, 4175400.0, 552600.0, 4177200.0),
+    "SOMA / Mission Bay": (551600.0, 4179200.0, 554400.0, 4181600.0),
+    "Marina / Crissy Field": (548200.0, 4183000.0, 551000.0, 4184600.0),
+    "Sunset / Lake Merced": (543200.0, 4174000.0, 547600.0, 4180200.0),
+    "Bayview / Islais Creek": (552200.0, 4174800.0, 555200.0, 4178200.0),
+    "Visitacion Valley": (550600.0, 4173400.0, 553600.0, 4175000.0),
+}
 
 
 def _load_pipeline_module(script_name: str, module_name: str) -> Any:
@@ -189,6 +199,508 @@ def build_validation_summary(
             "csi": float(metrics["csi"]),
         },
     }
+
+
+def sample_max_depth_within_buffers(
+    depth_m: np.ndarray,
+    transform: Affine,
+    nodata_value: float,
+    xs_m: Sequence[float] | np.ndarray,
+    ys_m: Sequence[float] | np.ndarray,
+    radii_m: Sequence[float],
+) -> dict[float, np.ndarray]:
+    """Sample maximum valid depth within exact circular UTM buffers around query points."""
+    xs_arr = np.asarray(xs_m, dtype=np.float64)
+    ys_arr = np.asarray(ys_m, dtype=np.float64)
+    n_pts = xs_arr.size
+    results: dict[float, np.ndarray] = {
+        float(r): np.zeros(n_pts, dtype=np.float32) for r in radii_m
+    }
+    if n_pts == 0 or not radii_m:
+        return results
+
+    height, width = depth_m.shape
+    res_x = abs(float(transform.a))
+    res_y = abs(float(transform.e))
+    valid = (depth_m != nodata_value) & np.isfinite(depth_m)
+
+    sorted_radii = sorted(float(r) for r in radii_m)
+    max_r = max(sorted_radii)
+    pad_r = math.ceil(max_r / res_y) + 1 if max_r > 0 else 0
+    pad_c = math.ceil(max_r / res_x) + 1 if max_r > 0 else 0
+
+    for i, (x_pt, y_pt) in enumerate(zip(xs_arr, ys_arr, strict=True)):
+        r_c, c_c = rowcol(transform, float(x_pt), float(y_pt))
+        center_valid = 0 <= r_c < height and 0 <= c_c < width
+        center_val = (
+            float(depth_m[r_c, c_c]) if center_valid and valid[r_c, c_c] else 0.0
+        )
+
+        if max_r <= 0.0:
+            for r_m in sorted_radii:
+                results[r_m][i] = np.float32(center_val)
+            continue
+
+        r0 = max(0, r_c - pad_r)
+        r1 = min(height, r_c + pad_r + 1)
+        c0 = max(0, c_c - pad_c)
+        c1 = min(width, c_c + pad_c + 1)
+        if r0 >= r1 or c0 >= c1:
+            continue
+
+        sub_valid = valid[r0:r1, c0:c1]
+        if not sub_valid.any():
+            continue
+        sub_depth = depth_m[r0:r1, c0:c1]
+
+        x_centers = (
+            transform.c + (np.arange(c0, c1, dtype=np.float64) + 0.5) * transform.a
+        )
+        y_centers = (
+            transform.f + (np.arange(r0, r1, dtype=np.float64) + 0.5) * transform.e
+        )
+        dist2 = (y_centers[:, None] - y_pt) ** 2 + (x_centers[None, :] - x_pt) ** 2
+
+        for r_m in sorted_radii:
+            if r_m <= 0.0:
+                results[r_m][i] = np.float32(center_val)
+                continue
+            in_circle = (dist2 <= r_m * r_m) & sub_valid
+            if in_circle.any():
+                val = float(np.max(sub_depth[in_circle]))
+                results[r_m][i] = np.float32(max(val, center_val))
+            else:
+                results[r_m][i] = np.float32(center_val)
+
+    return results
+
+
+def sample_mask_within_buffers(
+    mask_bool: np.ndarray,
+    transform: Affine,
+    xs_m: Sequence[float] | np.ndarray,
+    ys_m: Sequence[float] | np.ndarray,
+    radii_m: Sequence[float],
+) -> dict[float, np.ndarray]:
+    """Return boolean capture arrays indicating whether mask_bool has True inside each buffer."""
+    sampled = sample_max_depth_within_buffers(
+        depth_m=mask_bool.astype(np.float32),
+        transform=transform,
+        nodata_value=-9999.0,
+        xs_m=xs_m,
+        ys_m=ys_m,
+        radii_m=radii_m,
+    )
+    return {r_m: vals >= 0.5 for r_m, vals in sampled.items()}
+
+
+def compute_roc_auc(
+    pos_scores: Sequence[float] | np.ndarray,
+    neg_scores: Sequence[float] | np.ndarray,
+) -> float:
+    """Compute Mann-Whitney U ROC-AUC comparing positive vs. negative control scores."""
+    pos = np.asarray(pos_scores, dtype=np.float64)
+    neg = np.asarray(neg_scores, dtype=np.float64)
+    pos = pos[np.isfinite(pos)]
+    neg = neg[np.isfinite(neg)]
+    n_pos = pos.size
+    n_neg = neg.size
+    if n_pos == 0 or n_neg == 0:
+        return 0.5
+    combined = np.concatenate([pos, neg])
+    ranks = stats.rankdata(combined, method="average")
+    pos_rank_sum = float(np.sum(ranks[:n_pos]))
+    auc = (pos_rank_sum - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
+    return round(float(auc), 6)
+
+
+def compute_neighborhood_sfpuc_metrics(
+    depth_m: np.ndarray,
+    obs_mask: np.ndarray,
+    valid_land_mask: np.ndarray,
+    transform: Affine,
+    depth_threshold_m: float = 0.1524,
+    neighborhoods_utm: Mapping[
+        str, tuple[float, float, float, float]
+    ] = SF_NEIGHBORHOOD_BOXES_UTM,
+) -> list[dict[str, Any]]:
+    """Compute SFPUC 100-year validation metrics across key San Francisco corridor bboxes."""
+    height, width = depth_m.shape
+    rows: list[dict[str, Any]] = []
+    for name, (xmin, ymin, xmax, ymax) in neighborhoods_utm.items():
+        r_top, c_left = rowcol(transform, xmin, ymax)
+        r_bot, c_right = rowcol(transform, xmax, ymin)
+        r0 = max(0, min(r_top, r_bot))
+        r1 = min(height, max(r_top, r_bot))
+        c0 = max(0, min(c_left, c_right))
+        c1 = min(width, max(c_left, c_right))
+        if r0 >= r1 or c0 >= c1:
+            continue
+
+        sub_valid = valid_land_mask[r0:r1, c0:c1]
+        sub_obs = obs_mask[r0:r1, c0:c1]
+        sub_depth = depth_m[r0:r1, c0:c1]
+        m = compute_flood_metrics(
+            depth_m=sub_depth,
+            obs_mask=sub_obs,
+            valid_mask=sub_valid,
+            depth_threshold_m=depth_threshold_m,
+        )
+        rows.append(
+            {
+                "neighborhood": name,
+                "bbox_epsg26910": [xmin, ymin, xmax, ymax],
+                "land_cells": int(np.sum(sub_valid)),
+                "obs_cells": int(np.sum(sub_obs & sub_valid)),
+                "mod_cells": int(np.sum((sub_depth >= depth_threshold_m) & sub_valid)),
+                **m,
+            }
+        )
+    return rows
+
+
+def _summarize_point_group(
+    indices: np.ndarray,
+    ar_depths_eval: np.ndarray,
+    sfpuc_eval: np.ndarray,
+    ar_depths_25: np.ndarray | None = None,
+) -> dict[str, Any]:
+    count = int(indices.size)
+    if count == 0:
+        return {
+            "count": 0,
+            "ar_05_capture": 0.0,
+            "ar_15_capture": 0.0,
+            "sfpuc_capture": 0.0,
+            "ar_05_capture_25m": 0.0,
+        }
+    d_eval = ar_depths_eval[indices]
+    s_eval = sfpuc_eval[indices]
+    res: dict[str, Any] = {
+        "count": count,
+        "ar_05_capture": round(float(np.mean(d_eval >= 0.05)), 4),
+        "ar_15_capture": round(float(np.mean(d_eval >= 0.1524)), 4),
+        "sfpuc_capture": round(float(np.mean(s_eval)), 4),
+    }
+    if ar_depths_25 is not None:
+        res["ar_05_capture_25m"] = round(
+            float(np.mean(ar_depths_25[indices] >= 0.05)), 4
+        )
+    return res
+
+
+def compute_311_validation_metrics(
+    points_gdf_utm: gpd.GeoDataFrame,
+    ar_depth_m: np.ndarray,
+    sfpuc_mask: np.ndarray,
+    valid_land_mask: np.ndarray,
+    transform: Affine,
+    nodata_value: float = -9999.0,
+    radii_m: Sequence[float] = (0.0, 25.0, 50.0),
+    thresholds_m: Sequence[float] = (0.05, 0.1524),
+    n_controls: int = 2000,
+    seed: int = 42,
+) -> dict[str, Any]:
+    """Compute 3-way validation metrics comparing SF 311 calls against AR hindcast & SFPUC."""
+    height, width = valid_land_mask.shape
+    keep_idx: list[int] = []
+    xs_list: list[float] = []
+    ys_list: list[float] = []
+
+    for idx, geom in enumerate(points_gdf_utm.geometry):
+        if geom is None or geom.is_empty:
+            continue
+        pt = geom.centroid if geom.geom_type != "Point" else geom
+        r, c = rowcol(transform, float(pt.x), float(pt.y))
+        if 0 <= r < height and 0 <= c < width and bool(valid_land_mask[r, c]):
+            keep_idx.append(idx)
+            xs_list.append(float(pt.x))
+            ys_list.append(float(pt.y))
+
+    filtered = points_gdf_utm.iloc[keep_idx].reset_index(drop=True)
+    xs_311 = np.asarray(xs_list, dtype=np.float64)
+    ys_311 = np.asarray(ys_list, dtype=np.float64)
+    n_valid_pts = xs_311.size
+
+    land_rows, land_cols = np.where(valid_land_mask)
+    if land_rows.size == 0 or n_valid_pts == 0:
+        raise ValueError(
+            "Cannot compute 311 validation without valid land cells and points."
+        )
+
+    rng = np.random.default_rng(seed)
+    n_ctrl_eff = min(int(n_controls), int(land_rows.size))
+    ctrl_picks = rng.choice(land_rows.size, size=n_ctrl_eff, replace=False)
+    xs_ctrl = (
+        transform.c + (land_cols[ctrl_picks].astype(np.float64) + 0.5) * transform.a
+    )
+    ys_ctrl = (
+        transform.f + (land_rows[ctrl_picks].astype(np.float64) + 0.5) * transform.e
+    )
+
+    sorted_radii = tuple(sorted(float(r) for r in radii_m))
+    ar_311 = sample_max_depth_within_buffers(
+        ar_depth_m, transform, nodata_value, xs_311, ys_311, sorted_radii
+    )
+    ar_ctrl = sample_max_depth_within_buffers(
+        ar_depth_m, transform, nodata_value, xs_ctrl, ys_ctrl, sorted_radii
+    )
+    sfpuc_311 = sample_mask_within_buffers(
+        sfpuc_mask, transform, xs_311, ys_311, sorted_radii
+    )
+    sfpuc_ctrl = sample_mask_within_buffers(
+        sfpuc_mask, transform, xs_ctrl, ys_ctrl, sorted_radii
+    )
+
+    by_buffer: list[dict[str, Any]] = []
+    for r_m in sorted_radii:
+        entry: dict[str, Any] = {
+            "radius_m": r_m,
+            "ar_roc_auc": compute_roc_auc(ar_311[r_m], ar_ctrl[r_m]),
+            "thresholds": {},
+        }
+        for thr in thresholds_m:
+            thr_key = f"{thr:g}m"
+            hits_311 = ar_311[r_m] >= float(thr)
+            hits_ctrl = ar_ctrl[r_m] >= float(thr)
+            rate_311 = float(np.mean(hits_311))
+            rate_ctrl = float(np.mean(hits_ctrl))
+            lift = round(rate_311 / rate_ctrl, 3) if rate_ctrl > 0.0 else None
+            entry["thresholds"][thr_key] = {
+                "hit_count": int(np.sum(hits_311)),
+                "capture_rate": round(rate_311, 4),
+                "control_rate": round(rate_ctrl, 4),
+                "lift": lift,
+            }
+
+        s_hits_311 = sfpuc_311[r_m]
+        s_hits_ctrl = sfpuc_ctrl[r_m]
+        s_rate_311 = float(np.mean(s_hits_311))
+        s_rate_ctrl = float(np.mean(s_hits_ctrl))
+        entry["sfpuc"] = {
+            "hit_count": int(np.sum(s_hits_311)),
+            "capture_rate": round(s_rate_311, 4),
+            "control_rate": round(s_rate_ctrl, 4),
+            "lift": round(s_rate_311 / s_rate_ctrl, 3) if s_rate_ctrl > 0.0 else None,
+        }
+        ar05_hits = ar_311[r_m] >= 0.05
+        entry["combined_ar05_or_sfpuc_rate"] = round(
+            float(np.mean(ar05_hits | s_hits_311)), 4
+        )
+        entry["ar05_only_not_sfpuc_count"] = int(np.sum(ar05_hits & (~s_hits_311)))
+        entry["sfpuc_only_not_ar05_count"] = int(np.sum(s_hits_311 & (~ar05_hits)))
+        by_buffer.append(entry)
+
+    eval_r = 50.0 if 50.0 in sorted_radii else max(sorted_radii)
+    r25 = 25.0 if 25.0 in sorted_radii else eval_r
+    ar_eval = ar_311[eval_r]
+    ar_25 = ar_311[r25]
+    s_eval = sfpuc_311[eval_r]
+
+    subtype_rows: list[dict[str, Any]] = []
+    if "service_subtype" in filtered.columns:
+        subtypes = filtered["service_subtype"].fillna("unknown").astype(str)
+        for st_val, idxs in subtypes.groupby(subtypes).groups.items():
+            idx_arr = np.asarray(list(idxs), dtype=int)
+            row_dict = {"service_subtype": st_val}
+            row_dict.update(_summarize_point_group(idx_arr, ar_eval, s_eval, ar_25))
+            subtype_rows.append(row_dict)
+        subtype_rows.sort(key=lambda r: r["count"], reverse=True)
+
+    neighborhood_rows: list[dict[str, Any]] = []
+    if "neighborhood" in filtered.columns:
+        nbhds = filtered["neighborhood"].fillna("Unknown").astype(str)
+        for nb_val, idxs in nbhds.groupby(nbhds).groups.items():
+            idx_arr = np.asarray(list(idxs), dtype=int)
+            row_dict = {"neighborhood": nb_val}
+            row_dict.update(_summarize_point_group(idx_arr, ar_eval, s_eval, ar_25))
+            neighborhood_rows.append(row_dict)
+        neighborhood_rows.sort(key=lambda r: r["count"], reverse=True)
+        neighborhood_rows = neighborhood_rows[:12]
+
+    missed_mask = ar_eval < 0.05
+    missed_clusters: list[dict[str, Any]] = []
+    if np.any(missed_mask):
+        missed_df = filtered.loc[missed_mask].copy()
+        nb_series = (
+            missed_df["neighborhood"].fillna("Unknown").astype(str)
+            if "neighborhood" in missed_df.columns
+            else np.repeat("Unknown", len(missed_df))
+        )
+        missed_df["_nb"] = nb_series
+        total_by_nb = (
+            filtered["neighborhood"]
+            .fillna("Unknown")
+            .astype(str)
+            .value_counts()
+            .to_dict()
+            if "neighborhood" in filtered.columns
+            else {}
+        )
+        missed_sfpuc = s_eval[missed_mask]
+        missed_df["_sfpuc_hit"] = missed_sfpuc
+        for nb_name, grp in missed_df.groupby("_nb"):
+            addrs = (
+                [
+                    str(a)
+                    for a in grp["address"].dropna().astype(str).unique()[:3]
+                    if str(a).strip()
+                ]
+                if "address" in grp.columns
+                else []
+            )
+            missed_clusters.append(
+                {
+                    "neighborhood": str(nb_name),
+                    "missed_count": len(grp),
+                    "total_count": int(total_by_nb.get(str(nb_name), len(grp))),
+                    "sfpuc_captured_count": int(grp["_sfpuc_hit"].sum()),
+                    "sample_addresses": addrs,
+                }
+            )
+        missed_clusters.sort(key=lambda c: c["missed_count"], reverse=True)
+        missed_clusters = missed_clusters[:10]
+
+    return {
+        "total_raw_points": len(points_gdf_utm),
+        "valid_land_points": int(n_valid_pts),
+        "dropped_outside_land": int(len(points_gdf_utm) - n_valid_pts),
+        "n_controls": int(n_ctrl_eff),
+        "eval_buffer_m": eval_r,
+        "by_buffer": by_buffer,
+        "subtype_breakdown": subtype_rows,
+        "neighborhood_breakdown": neighborhood_rows,
+        "top_missed_clusters": missed_clusters,
+    }
+
+
+def render_v02_validation_markdown(
+    sfpuc_summary: Mapping[str, Any],
+    neighborhood_rows: Sequence[Mapping[str, Any]],
+    fp_clusters: Sequence[Mapping[str, float]],
+    val_311_metrics: Mapping[str, Any],
+) -> str:
+    """Render the v0.2 citywide dual-validation and 3-way 311 comparison report."""
+    m = sfpuc_summary["metrics"]
+    lines: list[str] = [
+        "# San Francisco Citywide v0.2 Dual Validation Report",
+        "",
+        "## Model Configuration",
+        f"- **Region:** `{sfpuc_summary['region']}`",
+        f"- **Uniform Drainage Capacity:** `{sfpuc_summary['drainage_rate_mm_hr']:.1f} mm/hr`",
+        f"- **Paved Manning's n:** `{sfpuc_summary['manning_n_paved']:.3f}`",
+        f"- **Depth Threshold (SFPUC):** `{sfpuc_summary['depth_threshold_m']:.4f} m` (`6 in`)",
+        "",
+        "## 1. Citywide SFPUC 100-Year Storm Validation (`sf_citywide_100yr_slr0ft`)",
+        "",
+        "| Scope | Hit Rate | False Alarm Ratio | CSI | Land Cells | Obs Flood Cells | Mod Flood Cells |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        f"| **Citywide Land (>= 0.5 m)** | {m['hit_rate']:.4f} | {m['false_alarm_ratio']:.4f} | {m['csi']:.4f} | — | — | — |",
+    ]
+    for row in neighborhood_rows:
+        lines.append(
+            f"| {row['neighborhood']} | {row['hit_rate']:.4f} | {row['false_alarm_ratio']:.4f} | "
+            f"{row['csi']:.4f} | {row['land_cells']:,} | {row['obs_cells']:,} | {row['mod_cells']:,} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## 2. Dec 31, 2022 Atmospheric River Hindcast vs. SF 311 Reports (3-Way Comparison)",
+            "",
+            (
+                f"- **311 Flood Reports Evaluated:** `{val_311_metrics['valid_land_points']}` of "
+                f"`{val_311_metrics['total_raw_points']}` points on valid land "
+                f"(`dropped={val_311_metrics['dropped_outside_land']}`)"
+            ),
+            f"- **Random Dry Control Points:** `{val_311_metrics['n_controls']}`",
+            "",
+            (
+                "| Buffer | AR >= 0.05 m Hit Rate | AR 0.05 m Ctrl Rate | AR 0.05 m Lift | "
+                "AR >= 0.1524 m Hit Rate | AR 0.1524 m Lift | SFPUC Hit Rate | SFPUC Lift | AR ROC-AUC |"
+            ),
+            "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for b in val_311_metrics["by_buffer"]:
+        t05 = b["thresholds"]["0.05m"]
+        t15 = b["thresholds"]["0.1524m"]
+        sfp = b["sfpuc"]
+        lift05 = f"{t05['lift']:.2f}x" if t05["lift"] is not None else "n/a"
+        lift15 = f"{t15['lift']:.2f}x" if t15["lift"] is not None else "n/a"
+        liftsf = f"{sfp['lift']:.2f}x" if sfp["lift"] is not None else "n/a"
+        lines.append(
+            f"| {b['radius_m']:.0f} m | {t05['capture_rate']:.1%} ({t05['hit_count']}) | "
+            f"{t05['control_rate']:.1%} | {lift05} | "
+            f"{t15['capture_rate']:.1%} ({t15['hit_count']}) | {lift15} | "
+            f"{sfp['capture_rate']:.1%} ({sfp['hit_count']}) | {liftsf} | {b['ar_roc_auc']:.4f} |"
+        )
+
+    eval_r = float(val_311_metrics["eval_buffer_m"])
+    lines.extend(
+        [
+            "",
+            f"## 3. 311 Subtype Breakdown (`{eval_r:.0f} m` buffer)",
+            "",
+            "| Service Subtype | Count | AR >= 0.05 m (25 m) | AR >= 0.05 m (50 m) | AR >= 0.1524 m (50 m) | SFPUC (50 m) |",
+            "| --- | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for st in val_311_metrics["subtype_breakdown"]:
+        lines.append(
+            f"| {st['service_subtype']} | {st['count']} | {st['ar_05_capture_25m']:.1%} | "
+            f"{st['ar_05_capture']:.1%} | {st['ar_15_capture']:.1%} | {st['sfpuc_capture']:.1%} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            f"## 4. Top SF Neighborhoods by Dec 31, 2022 311 Volume (`{eval_r:.0f} m` buffer)",
+            "",
+            "| Neighborhood | 311 Calls | AR >= 0.05 m (25 m) | AR >= 0.05 m (50 m) | AR >= 0.1524 m (50 m) | SFPUC (50 m) |",
+            "| --- | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for nb in val_311_metrics["neighborhood_breakdown"]:
+        lines.append(
+            f"| {nb['neighborhood']} | {nb['count']} | {nb['ar_05_capture_25m']:.1%} | "
+            f"{nb['ar_05_capture']:.1%} | {nb['ar_15_capture']:.1%} | {nb['sfpuc_capture']:.1%} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## 5. Diagnostic Clusters",
+            "",
+            "### Top Land False-Positive Clusters (`sf_citywide_100yr_slr0ft` vs. SFPUC)",
+            "",
+            "| Area (`m^2`) | Centroid Easting (`m`) | Centroid Northing (`m`) |",
+            "| ---: | ---: | ---: |",
+        ]
+    )
+    for cl in fp_clusters:
+        lines.append(
+            f"| {cl['area_m2']:,.0f} | {cl['centroid_x_m']:.1f} | {cl['centroid_y_m']:.1f} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            f"### Top Missed 311 Clusters (`AR < 0.05 m` at `{eval_r:.0f} m`)",
+            "",
+            "| Neighborhood | Missed / Total | Caught by SFPUC | Sample Addresses |",
+            "| --- | ---: | ---: | --- |",
+        ]
+    )
+    for mc in val_311_metrics["top_missed_clusters"]:
+        addrs = ", ".join(mc["sample_addresses"]) if mc["sample_addresses"] else "—"
+        lines.append(
+            f"| {mc['neighborhood']} | {mc['missed_count']} / {mc['total_count']} | "
+            f"{mc['sfpuc_captured_count']} | {addrs} |"
+        )
+
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _write_float32_geotiff(
@@ -528,6 +1040,24 @@ def validate_sf(
     depth_threshold_m = float(val_cfg.get("depth_threshold_m", 0.1524))
     valid_dem = (dem_m != dem_nodata) & np.isfinite(dem_m)
     land_valid_mask = valid_dem & (dem_m >= min_land_elev_m)
+    nlcd_src_raw = domain.get("nlcd_landcover_source")
+    if (
+        bool(val_cfg.get("exclude_open_water", True))
+        and nlcd_src_raw
+        and Path(nlcd_src_raw).exists()
+    ):
+        nlcd_arr = np.zeros(dem_m.shape, dtype=np.uint8)
+        with rasterio.open(Path(nlcd_src_raw)) as nlcd_ds:
+            reproject(
+                source=nlcd_ds.read(1),
+                destination=nlcd_arr,
+                src_transform=nlcd_ds.transform,
+                src_crs=nlcd_ds.crs,
+                dst_transform=dst_transform,
+                dst_crs=project_crs,
+                resampling=Resampling.nearest,
+            )
+        land_valid_mask = land_valid_mask & (nlcd_arr != 11)
 
     bbox_utm = domain["bbox_epsg26910"]
     grid_res_m = float(domain["grid_resolution_m"])
@@ -643,6 +1173,115 @@ def validate_sf(
 
     print(f"[03_validate_sf] Wrote downscaled depth -> {downscaled_path}")
     print(f"[03_validate_sf] Wrote summary JSON -> {summary_path}")
+
+    ref_311_raw = domain.get("validation_311_reference")
+    hindcast_scenario = val_cfg.get("hindcast_scenario")
+    if ref_311_raw and hindcast_scenario:
+        ref_311_path = Path(ref_311_raw)
+        if not ref_311_path.exists():
+            raise FileNotFoundError(
+                f"Validation 311 point reference not found: {ref_311_path}"
+            )
+        hindcast_map_nc = (
+            Path(cfg["paths"]["runs_dir"]) / str(hindcast_scenario) / "sfincs_map.nc"
+        )
+        ar_depth_m, _ = _evaluate_run(
+            map_nc_path=hindcast_map_nc,
+            src_transform=src_transform,
+            project_crs=project_crs,
+            dem_m=dem_m,
+            dst_transform=dst_transform,
+            dem_nodata=dem_nodata,
+            obs_mask=obs_mask,
+            land_valid_mask=land_valid_mask,
+            depth_threshold_m=depth_threshold_m,
+        )
+        hindcast_depth_file = Path(
+            val_cfg.get(
+                "hindcast_depth_file",
+                downscaled_path.parent / f"{hindcast_scenario}_depth_2m.tif",
+            )
+        )
+        _write_float32_geotiff(
+            output_path=hindcast_depth_file,
+            data=ar_depth_m,
+            transform=dst_transform,
+            crs=project_crs,
+            nodata_value=dem_nodata,
+        )
+
+        pts_311_gdf = gpd.read_file(ref_311_path)
+        if pts_311_gdf.crs is None:
+            raise ValueError(f"{ref_311_path} is missing CRS")
+        pts_311_utm = pts_311_gdf.to_crs(project_crs)
+
+        neighborhood_rows = compute_neighborhood_sfpuc_metrics(
+            depth_m=best_depth_m,
+            obs_mask=obs_mask,
+            valid_land_mask=land_valid_mask,
+            transform=dst_transform,
+            depth_threshold_m=depth_threshold_m,
+        )
+        val_311_metrics = compute_311_validation_metrics(
+            points_gdf_utm=pts_311_utm,
+            ar_depth_m=ar_depth_m,
+            sfpuc_mask=obs_mask,
+            valid_land_mask=land_valid_mask,
+            transform=dst_transform,
+            nodata_value=dem_nodata,
+        )
+
+        metrics_3way_payload = {
+            "sfpuc_summary": summary,
+            "sfpuc_neighborhoods": neighborhood_rows,
+            "top_false_positive_clusters": top_fp,
+            "ar_311_validation": val_311_metrics,
+        }
+        metrics_3way_path = Path(
+            val_cfg.get(
+                "metrics_3way_file",
+                summary_path.parent / "validation_3way_metrics.json",
+            )
+        )
+        metrics_3way_path.parent.mkdir(parents=True, exist_ok=True)
+        metrics_3way_path.write_text(
+            json.dumps(metrics_3way_payload, indent=2) + "\n", encoding="utf-8"
+        )
+
+        report_md = render_v02_validation_markdown(
+            sfpuc_summary=summary,
+            neighborhood_rows=neighborhood_rows,
+            fp_clusters=top_fp,
+            val_311_metrics=val_311_metrics,
+        )
+        report_path = Path(
+            val_cfg.get(
+                "report_markdown_file",
+                f"docs/reports/{project['region_id']}_validation.md",
+            )
+        )
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(report_md, encoding="utf-8")
+
+        b50 = next(
+            (
+                b
+                for b in val_311_metrics["by_buffer"]
+                if math.isclose(b["radius_m"], 50.0)
+            ),
+            val_311_metrics["by_buffer"][-1],
+        )
+        print(
+            "[03_validate_sf] 311 3-way validation (50m): "
+            f"AR>=0.05m={b50['thresholds']['0.05m']['capture_rate']:.1%} "
+            f"(lift={b50['thresholds']['0.05m']['lift']}x), "
+            f"SFPUC={b50['sfpuc']['capture_rate']:.1%} "
+            f"(lift={b50['sfpuc']['lift']}x), AUC={b50['ar_roc_auc']:.4f}"
+        )
+        print(f"[03_validate_sf] Wrote hindcast depth -> {hindcast_depth_file}")
+        print(f"[03_validate_sf] Wrote 3-way metrics -> {metrics_3way_path}")
+        print(f"[03_validate_sf] Wrote validation report -> {report_path}")
+
     return summary
 
 

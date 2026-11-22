@@ -26,10 +26,10 @@ Goal: Scale the calibrated v0.1 pipeline (`drainage_rate_mm_hr: 5.0`, `manning_n
 - [x] Run **real-storm hindcast `sf_ar_20221231`** (Dec 31, 2022 observed rainfall + observed NOAA `9414290` tide).
 
 ## Phase 3: Dual Citywide Validation (`pipeline/03_validate_sf.py`)
-- [ ] Score citywide `sf_100yr_slr0ft` (`>= 0.1524 m`) against the full SFPUC 100-Year Storm Flood Risk Map (citywide + neighborhood breakdown: Mission, Alemany, SOMA, Marina, Sunset/Lake Merced, Bayview/Islais Creek, Visitacion Valley).
-- [ ] Score `sf_ar_20221231` against **Dec 31, 2022 SF 311 flood reports** (spatial hit/capture rate within `25 m` and `50 m` buffers vs. random dry control points).
-- [ ] Generate a 3-way validation report (`docs/reports/sf_v02_validation.md` + JSON metrics in `data/processed/sf_citywide/`) comparing Dec 31, 2022 SF 311 cases against both our SFINCS hindcast (`sf_ar_20221231`) and the official SFPUC 100-Year Flood Risk Map: capture rates at `0 m / 25 m / 50 m` buffers (`>= 0.05 m` and `>= 0.1524 m`), lift/ROC-AUC vs. random dry control points, subtype breakdown (`Flooding` vs. `Sewage_back_up`), neighborhood breakdown, and top missed 311 clusters.
-- [ ] Inspect top false positives/negatives across citywide corridors and resolve any remaining unburned underpasses or shoreline berm gaps before running the full matrix.
+- [x] Score citywide `sf_100yr_slr0ft` (`>= 0.1524 m`) against the full SFPUC 100-Year Storm Flood Risk Map (citywide + neighborhood breakdown: Mission, Alemany, SOMA, Marina, Sunset/Lake Merced, Bayview/Islais Creek, Visitacion Valley).
+- [x] Score `sf_ar_20221231` against **Dec 31, 2022 SF 311 flood reports** (spatial hit/capture rate within `25 m` and `50 m` buffers vs. random dry control points).
+- [x] Generate a 3-way validation report (`docs/reports/sf_v02_validation.md` + JSON metrics in `data/processed/sf_citywide/`) comparing Dec 31, 2022 SF 311 cases against both our SFINCS hindcast (`sf_ar_20221231`) and the official SFPUC 100-Year Flood Risk Map: capture rates at `0 m / 25 m / 50 m` buffers (`>= 0.05 m` and `>= 0.1524 m`), lift/ROC-AUC vs. random dry control points, subtype breakdown (`Flooding` vs. `Sewage_back_up`), neighborhood breakdown, and top missed 311 clusters.
+- [x] Inspect top false positives/negatives across citywide corridors and resolve any remaining unburned underpasses or shoreline berm gaps before running the full matrix.
 
 ## Phase 2B: Full 8-Scenario Compound SLR Matrix (`pipeline/02_build_sfincs.py`)
 - [ ] Once Phase 3 validation passes, run the remaining 7 scenarios (`sf_100yr_slr{1,3,5}ft` and `sf_10yr_slr{0,1,3,5}ft`) with dynamic NOAA `9414290` tidal boundary conditions.

@@ -225,6 +225,10 @@ validation:
   min_land_elevation_m: 0.5
   downscaled_depth_file: "data/processed/sf_citywide/sf_citywide_100yr_slr0ft_depth_2m.tif"
   summary_file: "data/processed/sf_citywide/validation_summary.json"
+  hindcast_scenario: "sf_citywide_ar_20221231"
+  hindcast_depth_file: "data/processed/sf_citywide/sf_citywide_ar_20221231_depth_2m.tif"
+  metrics_3way_file: "data/processed/sf_citywide/validation_3way_metrics.json"
+  report_markdown_file: "docs/reports/sf_v02_validation.md"
   sweep_drainage_rates_mm_hr: [5.0]
   sweep_manning_n_paved: [0.030]
 
