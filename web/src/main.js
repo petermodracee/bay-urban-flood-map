@@ -518,3 +518,31 @@ function initDisclaimerModal() {
 }
 
 initDisclaimerModal();
+
+function initPanelToggle() {
+	const controls = document.getElementById("controls");
+	const panelBody = document.getElementById("panel-body");
+	const toggleBtn = document.getElementById("panel-toggle-btn");
+	if (!controls || !panelBody || !toggleBtn) {
+		return;
+	}
+
+	function setCollapsed(collapsed) {
+		panelBody.hidden = collapsed;
+		controls.classList.toggle("collapsed", collapsed);
+		toggleBtn.setAttribute("aria-expanded", String(!collapsed));
+		toggleBtn.setAttribute(
+			"aria-label",
+			collapsed ? "Show controls" : "Hide controls",
+		);
+		toggleBtn.textContent = collapsed ? "Show" : "Hide";
+	}
+
+	setCollapsed(window.matchMedia("(max-width: 640px)").matches);
+
+	toggleBtn.addEventListener("click", () => {
+		setCollapsed(!panelBody.hidden);
+	});
+}
+
+initPanelToggle();

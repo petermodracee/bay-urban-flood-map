@@ -10,9 +10,23 @@
 
     <aside id="controls" aria-label="Flood map controls">
       <header class="panel-header">
-        <h1>SF Bay Urban Flood Map</h1>
-        <p class="subtitle">v0.2 San Francisco Citywide (2 m Subgrid SFINCS)</p>
+        <div class="panel-title-group">
+          <h1>SF Bay Urban Flood Map</h1>
+          <p class="subtitle">v0.2 San Francisco Citywide (2 m Subgrid SFINCS)</p>
+        </div>
+        <button
+          id="panel-toggle-btn"
+          type="button"
+          class="panel-toggle-btn"
+          aria-expanded="true"
+          aria-controls="panel-body"
+          aria-label="Hide controls"
+        >
+          Hide
+        </button>
       </header>
+
+      <div id="panel-body" class="panel-body">
 
       <div class="control-group">
         <label for="storm-select">Storm Event</label>
@@ -95,6 +109,7 @@
         </ul>
         <button id="reopen-disclaimer-btn" type="button" class="link-btn">View Disclaimer</button>
       </details>
+      </div>
     </aside>
 
     <div

@@ -16,6 +16,8 @@ body,
 	z-index: 10;
 	width: 290px;
 	max-width: calc(100vw - 24px);
+	max-height: calc(100dvh - 24px);
+	overflow-y: auto;
 	background: rgba(15, 23, 42, 0.88);
 	color: #f8fafc;
 	padding: 14px 16px;
@@ -29,6 +31,13 @@ body,
 	border: 1px solid rgba(148, 163, 184, 0.22);
 }
 
+.panel-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 10px;
+}
+
 .panel-header h1 {
 	margin: 0;
 	font-size: 15px;
@@ -40,6 +49,51 @@ body,
 	margin: 3px 0 0;
 	color: #cbd5e1;
 	font-size: 11px;
+}
+
+.panel-body {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.panel-body[hidden] {
+	display: none;
+}
+
+.panel-toggle-btn {
+	flex-shrink: 0;
+	padding: 4px 10px;
+	border-radius: 999px;
+	border: 1px solid rgba(148, 163, 184, 0.35);
+	background: rgba(30, 41, 59, 0.85);
+	color: #e2e8f0;
+	font-size: 11px;
+	font-weight: 600;
+	font-family: inherit;
+	cursor: pointer;
+}
+
+.panel-toggle-btn:hover {
+	background: rgba(51, 65, 85, 0.95);
+	border-color: rgba(148, 163, 184, 0.6);
+}
+
+#controls.collapsed {
+	width: auto;
+	padding: 10px 14px;
+	gap: 0;
+}
+
+#controls.collapsed .subtitle {
+	display: none;
+}
+
+@media (max-width: 640px) {
+	#controls,
+	#controls.collapsed {
+		max-width: calc(100vw - 68px);
+	}
 }
 
 .control-group {
