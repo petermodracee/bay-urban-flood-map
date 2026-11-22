@@ -12,9 +12,9 @@
 ---
 
 ## Phase 1 (Upgrade 1): Multi-Gauge Spatially Varying Bay Tides (`Nederhoff et al., 2021`)
-- [ ] Fetch multi-gauge NOAA CO-OPS observed & design tides across SF Bay (`9414290` Presidio, `9414750` Alameda, `9414863` Richmond, `9414523` Redwood City as boundary anchors).
-- [ ] Extend `pipeline/02_build_sfincs.py` to write multi-point `sfincs.bnd` / `sfincs.bzs` tables so SFINCS interpolates estuarine tidal gradients along `msk = 2`.
-- [ ] Add unit tests verifying multi-station `sfincs.bnd` / `sfincs.bzs` alignment and run A/B comparison on `sf_citywide`.
+- [x] Fetch multi-gauge NOAA CO-OPS observed & design tides across SF Bay (`9414290` Presidio, `9414750` Alameda, `9414863` Richmond, `9414523` Redwood City as boundary anchors).
+- [x] Extend `pipeline/02_build_sfincs.py` to write multi-point `sfincs.bnd` / `sfincs.bzs` tables so SFINCS interpolates estuarine tidal gradients along `msk = 2`.
+- [x] Add unit tests verifying multi-station `sfincs.bnd` / `sfincs.bzs` alignment and run A/B comparison on `sf_citywide`.
 
 ## Phase 2 (Upgrade 2): Tier 1 Bay-Wide 2D Drainage (`Bates et al., 2021`)
 - [ ] Implement **Tier 1a** in `pipeline/02_build_sfincs.py`: compute spatially varying 2D urban drainage abstraction from NLCD imperviousness/land cover and write SFINCS gridded net rainfall (`netamprfile`), keeping SCS Curve Number soil infiltration (`scsfile`) intact.

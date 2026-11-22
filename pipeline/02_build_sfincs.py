@@ -235,18 +235,67 @@ def build_waterlevel_forcing_inputs(
     return bzs_df, bnd_gdf
 
 
+def build_multi_station_waterlevel_forcing_inputs(
+    tidal_rows: Sequence[Mapping[str, Any]],
+    stations: Sequence[Mapping[str, Any]],
+    reference_time_utc: str | datetime,
+    duration_hr: float,
+    project_crs: str,
+) -> tuple[pd.DataFrame, gpd.GeoDataFrame]:
+    """Build multi-station water-level forcing timeseries (bzs DataFrame) and gauge GeoDataFrame."""
+    if duration_hr <= 0:
+        raise ValueError(f"duration_hr must be positive, got {duration_hr}")
+    if not tidal_rows:
+        raise ValueError("tidal_rows must not be empty.")
+    if not stations:
+        raise ValueError("stations must not be empty.")
+    assert_crs_equals(project_crs, "EPSG:26910", "config.project.crs")
+
+    station_cols = [f"wl_{st['id']}_m" for st in stations]
+    missing_cols = [col for col in station_cols if col not in tidal_rows[0]]
+    if missing_cols:
+        raise ValueError(
+            f"Multi-station tidal rows missing required columns: {missing_cols}"
+        )
+
+    tref = (
+        datetime.fromisoformat(reference_time_utc)
+        if isinstance(reference_time_utc, str)
+        else reference_time_utc
+    ).replace(tzinfo=None)
+
+    times: list[datetime] = []
+    series_by_idx: dict[int, list[float]] = {
+        idx: [] for idx in range(1, len(stations) + 1)
+    }
+    for row in tidal_rows:
+        times.append(tref + timedelta(minutes=float(row["time_min"])))
+        for idx, col in enumerate(station_cols, start=1):
+            series_by_idx[idx].append(float(row[col]))
+
+    tstop = tref + timedelta(hours=duration_hr)
+    if times[-1] < tstop:
+        times.append(tstop)
+        for values in series_by_idx.values():
+            values.append(values[-1])
+
+    bzs_df = pd.DataFrame(series_by_idx, index=pd.DatetimeIndex(times, name="time"))
+    bnd_gdf = gpd.GeoDataFrame(
+        {"index": list(range(1, len(stations) + 1))},
+        geometry=[
+            Point(float(st["x_epsg26910"]), float(st["y_epsg26910"])) for st in stations
+        ],
+        crs=project_crs,
+    )
+    return bzs_df, bnd_gdf
+
+
 def _read_tidal_hydrograph_csv(csv_path: Path) -> list[dict[str, float]]:
     if not csv_path.exists():
         raise FileNotFoundError(f"Tidal hydrograph CSV not found: {csv_path}")
     with csv_path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
-        return [
-            {
-                "time_min": float(row["time_min"]),
-                "water_level_m": float(row["water_level_m"]),
-            }
-            for row in reader
-        ]
+        return [{k: float(v) for k, v in row.items()} for row in reader]
 
 
 def write_sfincs_waterlevel_files(
@@ -494,14 +543,28 @@ def _build_and_run_single_scenario(
 
     if tidal_file:
         tidal_rows = _read_tidal_hydrograph_csv(Path(tidal_file))
-        xmin, ymin, xmax, ymax = (float(v) for v in domain["bbox_epsg26910"])
-        bzs_df, bnd_gdf = build_waterlevel_forcing_inputs(
-            tidal_rows=tidal_rows,
-            reference_time_utc=tref,
-            duration_hr=duration_hr,
-            location_xy=(0.5 * (xmin + xmax), 0.5 * (ymin + ymax)),
-            project_crs=project_crs,
-        )
+        tide_gauges = list(cfg.get("project", {}).get("tide_gauges") or [])
+        if (
+            tide_gauges
+            and tidal_rows
+            and all(f"wl_{st['id']}_m" in tidal_rows[0] for st in tide_gauges)
+        ):
+            bzs_df, bnd_gdf = build_multi_station_waterlevel_forcing_inputs(
+                tidal_rows=tidal_rows,
+                stations=tide_gauges,
+                reference_time_utc=tref,
+                duration_hr=duration_hr,
+                project_crs=project_crs,
+            )
+        else:
+            xmin, ymin, xmax, ymax = (float(v) for v in domain["bbox_epsg26910"])
+            bzs_df, bnd_gdf = build_waterlevel_forcing_inputs(
+                tidal_rows=tidal_rows,
+                reference_time_utc=tref,
+                duration_hr=duration_hr,
+                location_xy=(0.5 * (xmin + xmax), 0.5 * (ymin + ymax)),
+                project_crs=project_crs,
+            )
         write_sfincs_waterlevel_files(
             run_dir=run_dir,
             bzs_df=bzs_df,

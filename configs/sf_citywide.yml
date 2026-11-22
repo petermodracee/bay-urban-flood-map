@@ -10,7 +10,36 @@ project:
   crs: "EPSG:26910"  # NAD83 / UTM Zone 10N (meters)
   output_crs: "EPSG:3857"  # Web Mercator for Cloud Optimized GeoTIFFs
   vertical_datum: "NAVD88"
-  tide_gauge: "9414290"  # NOAA San Francisco, CA
+  tide_gauge: "9414290"  # NOAA San Francisco, CA (primary control gauge)
+  tide_gauges:
+    - id: "9414290"
+      name: "San Francisco (Presidio)"
+      x_epsg26910: 547016.8
+      y_epsg26910: 4184458.7
+      mhhw_m: 1.798
+      tidal_amp_m: 0.829
+      phase_lag_min: 0.0
+    - id: "9414750"
+      name: "Alameda"
+      x_epsg26910: 561625.5
+      y_epsg26910: 4180743.7
+      mhhw_m: 1.941
+      tidal_amp_m: 0.960
+      phase_lag_min: 18.0
+    - id: "9414863"
+      name: "Richmond"
+      x_epsg26910: 552729.9
+      y_epsg26910: 4198029.3
+      mhhw_m: 1.846
+      tidal_amp_m: 0.850
+      phase_lag_min: 24.0
+    - id: "9414523"
+      name: "Redwood City"
+      x_epsg26910: 569653.7
+      y_epsg26910: 4151388.8
+      mhhw_m: 2.140
+      tidal_amp_m: 1.158
+      phase_lag_min: 60.0
 
 domain:
   # Full mainland San Francisco peninsula [xmin, ymin, xmax, ymax] in EPSG:26910 (13.0 km x 12.4 km)

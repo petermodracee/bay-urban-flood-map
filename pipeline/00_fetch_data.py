@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import rasterio
 import requests
@@ -421,6 +422,7 @@ def generate_design_tidal_hydrograph(
     tidal_amp_m: float,
     slr_m: float,
     peak_time_hr: float = 12.0,
+    phase_lag_min: float = 0.0,
 ) -> list[tuple[float, float]]:
     """Generate a semidiurnal (12.42 hr) NAVD88 tidal hydrograph peaking at MHHW + surge + SLR."""
     if duration_hr <= 0 or timestep_min <= 0:
@@ -431,15 +433,51 @@ def generate_design_tidal_hydrograph(
         raise ValueError("duration_hr * 60 must be divisible by timestep_min.")
 
     m2_period_hr = 12.42
+    shifted_peak_hr = peak_time_hr + (phase_lag_min / 60.0)
     mean_level_m = mhhw_m + surge_m - tidal_amp_m + slr_m
     rows: list[tuple[float, float]] = []
     for idx in range(n_steps + 1):
         time_min = idx * timestep_min
         time_hr = time_min / 60.0
         wl_m = mean_level_m + tidal_amp_m * math.cos(
-            2.0 * math.pi * (time_hr - peak_time_hr) / m2_period_hr
+            2.0 * math.pi * (time_hr - shifted_peak_hr) / m2_period_hr
         )
         rows.append((time_min, wl_m))
+    return rows
+
+
+def merge_multi_station_tidal_series(
+    station_series: Mapping[str, Sequence[tuple[float, float]]],
+    station_order: Sequence[str],
+) -> list[dict[str, float]]:
+    """Align multi-station (time_min, water_level_m) series onto a common sorted time grid."""
+    if not station_order:
+        raise ValueError("station_order must not be empty.")
+    missing = [st for st in station_order if st not in station_series]
+    if missing:
+        raise ValueError(f"Missing tidal series for stations: {missing}")
+
+    all_times: set[float] = set()
+    parsed: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for st in station_order:
+        pts = sorted(station_series[st], key=lambda item: float(item[0]))
+        if not pts:
+            raise ValueError(f"Tidal series for station {st} is empty.")
+        ts = np.array([float(p[0]) for p in pts], dtype=np.float64)
+        vs = np.array([float(p[1]) for p in pts], dtype=np.float64)
+        parsed[st] = (ts, vs)
+        all_times.update(ts.tolist())
+
+    grid = np.array(sorted(all_times), dtype=np.float64)
+    interp_cols = {
+        st: np.interp(grid, parsed[st][0], parsed[st][1]) for st in station_order
+    }
+    rows: list[dict[str, float]] = []
+    for idx, t_val in enumerate(grid.tolist()):
+        row: dict[str, float] = {"time_min": float(t_val)}
+        for st in station_order:
+            row[f"wl_{st}_m"] = float(interp_cols[st][idx])
+        rows.append(row)
     return rows
 
 
@@ -564,6 +602,25 @@ def _write_tidal_csv(output_path: Path, rows: Sequence[tuple[float, float]]) -> 
             writer.writerow([f"{time_min:.1f}", f"{wl_m:.4f}"])
 
 
+def _write_multi_station_tidal_csv(
+    output_path: Path,
+    rows: Sequence[Mapping[str, float]],
+    station_ids: Sequence[str],
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    cols = [f"wl_{st}_m" for st in station_ids]
+    with output_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["time_min", *cols])
+        for row in rows:
+            writer.writerow(
+                [
+                    f"{float(row['time_min']):.1f}",
+                    *(f"{float(row[c]):.4f}" for c in cols),
+                ]
+            )
+
+
 def _fetch_hyetographs(cfg: Mapping[str, Any], force: bool) -> None:
     for event_key, event_cfg in cfg.get("rain_events", {}).items():
         hyetograph_file = event_cfg.get("hyetograph_file")
@@ -607,8 +664,37 @@ def _fetch_hyetographs(cfg: Mapping[str, Any], force: bool) -> None:
         )
 
 
+def _fetch_noaa_coops_series(
+    station: str,
+    begin_date: str,
+    end_date: str,
+    reference_time_utc: str,
+) -> list[tuple[float, float]]:
+    resp = requests.get(
+        NOAA_COOPS_URL,
+        params={
+            "begin_date": begin_date,
+            "end_date": end_date,
+            "station": station,
+            "product": "water_level",
+            "datum": "NAVD",
+            "time_zone": "gmt",
+            "units": "metric",
+            "format": "json",
+        },
+        timeout=DEFAULT_HTTP_TIMEOUT_S,
+    )
+    resp.raise_for_status()
+    return parse_noaa_coops_water_levels(
+        resp.json(), reference_time_utc=reference_time_utc
+    )
+
+
 def _fetch_tidal_hydrographs(cfg: Mapping[str, Any], force: bool) -> None:
-    station = str(cfg.get("project", {}).get("tide_gauge", "9414290"))
+    project_cfg = cfg.get("project", {})
+    station = str(project_cfg.get("tide_gauge", "9414290"))
+    tide_gauges = list(project_cfg.get("tide_gauges") or [])
+
     for slr_key, slr_cfg in cfg.get("slr_increments", {}).items():
         tide_file = slr_cfg.get("tidal_hydrograph_file")
         if not tide_file:
@@ -619,6 +705,50 @@ def _fetch_tidal_hydrographs(cfg: Mapping[str, Any], force: bool) -> None:
             continue
 
         tide_method = slr_cfg.get("tide_method")
+        if tide_gauges:
+            station_order = [str(g["id"]) for g in tide_gauges]
+            station_series: dict[str, list[tuple[float, float]]] = {}
+            for gauge in tide_gauges:
+                gid = str(gauge["id"])
+                if tide_method == "synthetic_semidiurnal":
+                    station_series[gid] = generate_design_tidal_hydrograph(
+                        duration_hr=float(slr_cfg["duration_hr"]),
+                        timestep_min=float(slr_cfg["timestep_min"]),
+                        mhhw_m=float(gauge.get("mhhw_m", slr_cfg["mhhw_m"])),
+                        surge_m=float(slr_cfg["surge_m"]),
+                        tidal_amp_m=float(
+                            gauge.get("tidal_amp_m", slr_cfg["tidal_amp_m"])
+                        ),
+                        slr_m=float(slr_cfg["slr_m"]),
+                        peak_time_hr=float(slr_cfg.get("peak_time_hr", 12.0)),
+                        phase_lag_min=float(gauge.get("phase_lag_min", 0.0)),
+                    )
+                elif tide_method == "noaa_coops":
+                    station_series[gid] = _fetch_noaa_coops_series(
+                        station=gid,
+                        begin_date=str(slr_cfg["begin_date"]),
+                        end_date=str(slr_cfg["end_date"]),
+                        reference_time_utc=str(slr_cfg["reference_time_utc"]),
+                    )
+                else:
+                    raise ValueError(
+                        f"Unsupported tide_method for {slr_key}: {tide_method}"
+                    )
+            merged_rows = merge_multi_station_tidal_series(
+                station_series=station_series,
+                station_order=station_order,
+            )
+            _write_multi_station_tidal_csv(out_path, merged_rows, station_order)
+            peak_m = max(
+                float(row[f"wl_{st}_m"]) for row in merged_rows for st in station_order
+            )
+            print(
+                f"[00_fetch_data] Wrote {slr_key} multi-gauge tidal hydrograph "
+                f"({len(merged_rows)} pts, {len(station_order)} stations, "
+                f"peak={peak_m:.3f} m NAVD88) -> {out_path}"
+            )
+            continue
+
         if tide_method == "synthetic_semidiurnal":
             rows = generate_design_tidal_hydrograph(
                 duration_hr=float(slr_cfg["duration_hr"]),
@@ -630,23 +760,11 @@ def _fetch_tidal_hydrographs(cfg: Mapping[str, Any], force: bool) -> None:
                 peak_time_hr=float(slr_cfg.get("peak_time_hr", 12.0)),
             )
         elif tide_method == "noaa_coops":
-            resp = requests.get(
-                NOAA_COOPS_URL,
-                params={
-                    "begin_date": str(slr_cfg["begin_date"]),
-                    "end_date": str(slr_cfg["end_date"]),
-                    "station": station,
-                    "product": "water_level",
-                    "datum": "NAVD",
-                    "time_zone": "gmt",
-                    "units": "metric",
-                    "format": "json",
-                },
-                timeout=DEFAULT_HTTP_TIMEOUT_S,
-            )
-            resp.raise_for_status()
-            rows = parse_noaa_coops_water_levels(
-                resp.json(), reference_time_utc=str(slr_cfg["reference_time_utc"])
+            rows = _fetch_noaa_coops_series(
+                station=station,
+                begin_date=str(slr_cfg["begin_date"]),
+                end_date=str(slr_cfg["end_date"]),
+                reference_time_utc=str(slr_cfg["reference_time_utc"]),
             )
         else:
             raise ValueError(f"Unsupported tide_method for {slr_key}: {tide_method}")
