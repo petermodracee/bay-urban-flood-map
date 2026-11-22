@@ -2,7 +2,9 @@
 
 An open-source urban stormwater and compound sea level rise (SLR) flood model and serverless web viewer for the San Francisco Bay Area, built with **HydroMT-SFINCS** and **MapLibre GL JS + Cloud Optimized GeoTIFFs (COGs)**.
 
-**Status:** `v0.2` complete — full San Francisco citywide compound SLR (`+0/+1/+3/+5 ft`) + Dec 31, 2022 Atmospheric River hindcast, dual validation against SFPUC & 424 SF 311 flood reports, derived SLR delta COGs, and interactive MapLibre viewer. Next up: `v0.3` static cloud hosting ([`docs/plan/PLAN_V03.md`](docs/plan/PLAN_V03.md)), `v0.4` SF literature-backed upgrades & ablation ([`docs/plan/PLAN_V04.md`](docs/plan/PLAN_V04.md)), and `v0.5` East/South Bay MS4 expansion.
+**Live Viewer:** https://bay-urban-flood-map.pages.dev
+
+**Status:** `v0.3` static cloud hosting complete — full San Francisco citywide compound SLR (`+0/+1/+3/+5 ft`) + Dec 31, 2022 Atmospheric River hindcast, dual validation against SFPUC & 424 SF 311 flood reports, derived SLR delta COGs hosted on Cloudflare R2, and interactive MapLibre viewer on Cloudflare Pages. Next up: `v0.4` SF literature-backed upgrades & ablation ([`docs/plan/PLAN_V04.md`](docs/plan/PLAN_V04.md)) and `v0.5` East/South Bay MS4 expansion.
 
 > **Note:** This is a screening-level 2D overland pooling and coastal-compound flood model (see [`docs/METHODS.md`](docs/METHODS.md)). It is not a 1D parcel-level storm-pipe capacity model or a regulatory FEMA flood map.
 
@@ -93,3 +95,8 @@ npm run build
 ```
 
 Exported `EPSG:3857` COGs (e.g., `sf_citywide_100yr_slr0ft_depth_3857.tif`, `sf_citywide_100yr_slr5ft_delta_3857.tif`), GeoJSON overlays, and `manifest.json` are written to `data/web_outputs/` per [`docs/DATA_CONTRACTS.md`](docs/DATA_CONTRACTS.md).
+
+## License & Attribution
+
+- **Code:** Repository source code (`pipeline/`, `web/`, `configs/`, `deploy/`) is licensed under the **Apache License, Version 2.0** ([`LICENSE`](LICENSE)).
+- **Upstream & Derived Geospatial Data:** Input datasets and derived flood rasters remain subject to their respective upstream licenses and attribution terms in [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md), including **SFEI SF Bay Shore Inventory** (`GNU GPL v3.0`), **OpenStreetMap** (`ODbL 1.0`, © OpenStreetMap contributors), **Open-Meteo** (`CC BY 4.0`), **DataSF / SFPUC / SF 311** (`Open Data Commons PDDL`), **USGS 3DEP / NLCD**, **USDA NRCS SSURGO**, and **NOAA CO-OPS / Atlas 14** (Public Domain).
