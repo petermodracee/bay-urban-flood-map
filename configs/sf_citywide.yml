@@ -192,6 +192,7 @@ terrain_prep:
   approach_sample_m: 10.0
   carve_half_width_m: 5.0
   min_bump_m: 0.15
+  max_bump_m: 6.0
   building_handling: "elevation_bump"
   building_elevation_bump_m: 3.0
   building_manning_n: 0.30
@@ -201,6 +202,8 @@ terrain_prep:
   manning_n_vegetation: 0.060
   default_urban_hsg: "D"
   nodata_value: -9999.0
+  shoreline_crest_half_width_m: 2.0
+  shoreline_elevation_col: "Z_Mean"
 
 sfincs_model:
   docker_image: "deltares/sfincs-cpu:latest"

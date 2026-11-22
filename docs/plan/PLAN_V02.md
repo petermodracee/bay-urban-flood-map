@@ -16,9 +16,9 @@ Goal: Scale the calibrated v0.1 pipeline (`drainage_rate_mm_hr: 5.0`, `manning_n
   - [x] DataSF 311 Cases filtered to `2022-12-31` – `2023-01-01` street flooding / catch-basin / sewer-backup reports.
 
 ## Phase 1: Citywide Hydro-Enforcement & Shoreline Structures (`pipeline/01_prep_terrain.py`)
-- [ ] Run hydro-enforcement across all SF freeway/rail underpasses and tunnels (US-101, I-280, I-80 approaches, Caltrain, Geary/Stockton underpasses) at `2 m` subgrid resolution.
-- [ ] Burn/enforce SFEI shoreline structure crest elevations onto the `2 m` DEM so coastal seawalls and berms are preserved rather than smoothed out.
-- [ ] Generate citywide `sf_citywide_hydro_dem_2m.tif`, `sf_citywide_manning_n_2m.tif`, and `sf_citywide_curve_number_2m.tif` in `data/processed/`.
+- [x] Run hydro-enforcement across all SF freeway/rail underpasses and tunnels (US-101, I-280, I-80 approaches, Caltrain, Geary/Stockton underpasses) at `2 m` subgrid resolution.
+- [x] Burn/enforce SFEI shoreline structure crest elevations onto the `2 m` DEM so coastal seawalls and berms are preserved rather than smoothed out.
+- [x] Generate citywide `sf_citywide_hydro_dem_2m.tif`, `sf_citywide_manning_n_2m.tif`, and `sf_citywide_curve_number_2m.tif` in `data/processed/`.
 
 ## Phase 2A: Coastal Tidal BCs & Initial Citywide Validation Runs (`pipeline/02_build_sfincs.py`)
 - [ ] Extend `pipeline/02_build_sfincs.py` to configure coastal water-level boundary cells (`msk=2` + `sfincs.bzs`/`sfincs.bnd`) along SF Bay & Pacific Ocean shorelines from `tidal_hydrograph_file`, keeping `msk=3` outflow along the southern San Mateo County boundary and masking deep offshore water.
