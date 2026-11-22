@@ -86,3 +86,14 @@
 | Upper Market | 3 / 3 | 0 | 4300 24TH ST, SAN FRANCISCO, CA, 94114, Intersection of DOUGLASS ST and ELIZABETH ST, 3721 MARKET ST, SAN FRANCISCO, CA, 94131 |
 | Alamo Square | 2 / 3 | 0 | 1001 FULTON ST, SAN FRANCISCO, CA, 94117, Intersection of FULTON ST and STEINER ST |
 | Ashbury Heights | 2 / 2 | 0 | 63 CARMEL ST, SAN FRANCISCO, CA, 94117, 832 CLAYTON ST, SAN FRANCISCO, CA, 94117 |
+
+## 6. Calibration Sensitivity Summary (`sf_citywide_100yr_slr0ft` vs. SFPUC, excluding `NLCD 11`)
+
+| Drainage (`mm/hr`) | Paved Manning's `n` | Citywide HR | Citywide FAR | Citywide CSI | Alemany CSI | SOMA CSI | Bayview CSI |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **5.0** | **0.030** | **0.3884** | **0.7083** | **0.1999** | **0.4157** | **0.3591** | **0.2798** |
+| 8.0 | 0.030 | 0.3026 | 0.6931 | 0.1797 | 0.341 | 0.272 | 0.251 |
+| 8.0 | 0.020 | 0.2940 | 0.6935 | 0.1766 | 0.325 | 0.267 | 0.246 |
+| 10.0 | 0.020 | 0.2331 | 0.7105 | 0.1483 | 0.275 | 0.181 | 0.211 |
+
+Raising uniform drainage above `5.0 mm/hr` or reducing paved Manning's `n` to `0.020` drops true-positive capture faster than false alarms (because remaining citywide false positives occur largely along Ocean Beach, Crissy Field, and park/open-space areas excluded from SFPUC's urban parcel flood layer). The calibrated `5.0 mm/hr` + `n = 0.030` baseline is therefore retained for Phase 2B.
