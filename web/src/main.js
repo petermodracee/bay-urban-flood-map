@@ -478,3 +478,43 @@ map.on("click", async (e) => {
 			.addTo(map);
 	}
 });
+
+const DISCLAIMER_STORAGE_KEY = "bayUrbanFloodMapDisclaimerAcceptedV1";
+
+function initDisclaimerModal() {
+	const modal = document.getElementById("disclaimer-modal");
+	const agreeBtn = document.getElementById("disclaimer-agree-btn");
+	const reopenBtn = document.getElementById("reopen-disclaimer-btn");
+	if (!modal || !agreeBtn) {
+		return;
+	}
+
+	let accepted = false;
+	try {
+		accepted = window.localStorage.getItem(DISCLAIMER_STORAGE_KEY) === "1";
+	} catch {
+		accepted = false;
+	}
+
+	if (!accepted) {
+		modal.hidden = false;
+		agreeBtn.focus();
+	}
+
+	agreeBtn.addEventListener("click", () => {
+		try {
+			window.localStorage.setItem(DISCLAIMER_STORAGE_KEY, "1");
+		} catch {
+			// Ignore storage errors (e.g. private browsing) and still dismiss.
+		}
+		modal.hidden = true;
+		reopenBtn?.focus();
+	});
+
+	reopenBtn?.addEventListener("click", () => {
+		modal.hidden = false;
+		agreeBtn.focus();
+	});
+}
+
+initDisclaimerModal();
