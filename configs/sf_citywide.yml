@@ -115,6 +115,39 @@ rain_events:
     end_date: "2023-01-01"
     timestep_min: 60
     hyetograph_file: "data/raw/sf_citywide/sf_hyetograph_ar_20221231_48hr.csv"
+  rain_ar_20211024:
+    label: "Oct 24, 2021 Atmospheric River"
+    return_period_yr: null
+    duration_hr: 48
+    source: "open_meteo_archive"
+    lat: 37.76
+    lon: -122.43
+    start_date: "2021-10-24"
+    end_date: "2021-10-25"
+    timestep_min: 60
+    hyetograph_file: "data/raw/sf_citywide/sf_hyetograph_ar_20211024_48hr.csv"
+  rain_ar_20230109:
+    label: "Jan 9, 2023 Atmospheric River"
+    return_period_yr: null
+    duration_hr: 48
+    source: "open_meteo_archive"
+    lat: 37.76
+    lon: -122.43
+    start_date: "2023-01-09"
+    end_date: "2023-01-10"
+    timestep_min: 60
+    hyetograph_file: "data/raw/sf_citywide/sf_hyetograph_ar_20230109_48hr.csv"
+  rain_ar_20240204:
+    label: "Feb 4, 2024 Atmospheric River"
+    return_period_yr: null
+    duration_hr: 48
+    source: "open_meteo_archive"
+    lat: 37.76
+    lon: -122.43
+    start_date: "2024-02-04"
+    end_date: "2024-02-05"
+    timestep_min: 60
+    hyetograph_file: "data/raw/sf_citywide/sf_hyetograph_ar_20240204_48hr.csv"
 
 slr_increments:
   slr_0ft:
@@ -179,6 +212,36 @@ slr_increments:
     end_date: "20230101"
     reference_time_utc: "2022-12-31T00:00:00"
     tidal_hydrograph_file: "data/raw/sf_citywide/sf_tide_obs_20221231.csv"
+  tide_ar_20211024:
+    slr_ft: 0.0
+    slr_m: 0.0
+    opc_2024_pathway: "Observed Hindcast (NOAA Multi-Gauge)"
+    opc_2024_horizon: "2021-10-24"
+    tide_method: "noaa_coops"
+    begin_date: "20211024"
+    end_date: "20211025"
+    reference_time_utc: "2021-10-24T00:00:00"
+    tidal_hydrograph_file: "data/raw/sf_citywide/sf_tide_obs_20211024.csv"
+  tide_ar_20230109:
+    slr_ft: 0.0
+    slr_m: 0.0
+    opc_2024_pathway: "Observed Hindcast (NOAA Multi-Gauge)"
+    opc_2024_horizon: "2023-01-09"
+    tide_method: "noaa_coops"
+    begin_date: "20230109"
+    end_date: "20230110"
+    reference_time_utc: "2023-01-09T00:00:00"
+    tidal_hydrograph_file: "data/raw/sf_citywide/sf_tide_obs_20230109.csv"
+  tide_ar_20240204:
+    slr_ft: 0.0
+    slr_m: 0.0
+    opc_2024_pathway: "Observed Hindcast (NOAA Multi-Gauge)"
+    opc_2024_horizon: "2024-02-04"
+    tide_method: "noaa_coops"
+    begin_date: "20240204"
+    end_date: "20240205"
+    reference_time_utc: "2024-02-04T00:00:00"
+    tidal_hydrograph_file: "data/raw/sf_citywide/sf_tide_obs_20240204.csv"
 
 scenarios:
   - id: sf_citywide_100yr_slr0ft
@@ -187,6 +250,15 @@ scenarios:
   - id: sf_citywide_ar_20221231
     rain: rain_ar_20221231
     slr: tide_ar_20221231
+  - id: sf_citywide_ar_20211024
+    rain: rain_ar_20211024
+    slr: tide_ar_20211024
+  - id: sf_citywide_ar_20230109
+    rain: rain_ar_20230109
+    slr: tide_ar_20230109
+  - id: sf_citywide_ar_20240204
+    rain: rain_ar_20240204
+    slr: tide_ar_20240204
   - id: sf_citywide_100yr_slr1ft
     rain: rain_100yr
     slr: slr_1ft
@@ -264,6 +336,36 @@ validation:
   hindcast_scenario: "sf_citywide_ar_20221231"
   hindcast_depth_file: "data/processed/sf_citywide/sf_citywide_ar_20221231_depth_2m.tif"
   metrics_3way_file: "data/processed/sf_citywide/validation_3way_metrics.json"
+  ensemble_metrics_file: "data/processed/sf_citywide/validation_ensemble_metrics.json"
+  hindcast_ensemble:
+    - id: "ar_20211024"
+      label: "Oct 24, 2021 Atmospheric River"
+      scenario: "sf_citywide_ar_20211024"
+      depth_file: "data/processed/sf_citywide/sf_citywide_ar_20211024_depth_2m.tif"
+      validation_311_reference: "data/raw/sf_citywide/sf_311_20211024_floods.gpkg"
+      validation_311_start_utc: "2021-10-24T00:00:00"
+      validation_311_end_utc: "2021-10-26T00:00:00"
+    - id: "ar_20221231"
+      label: "Dec 31, 2022 Atmospheric River"
+      scenario: "sf_citywide_ar_20221231"
+      depth_file: "data/processed/sf_citywide/sf_citywide_ar_20221231_depth_2m.tif"
+      validation_311_reference: "data/raw/sf_citywide/sf_311_20221231_floods.gpkg"
+      validation_311_start_utc: "2022-12-31T00:00:00"
+      validation_311_end_utc: "2023-01-02T00:00:00"
+    - id: "ar_20230109"
+      label: "Jan 9, 2023 Atmospheric River"
+      scenario: "sf_citywide_ar_20230109"
+      depth_file: "data/processed/sf_citywide/sf_citywide_ar_20230109_depth_2m.tif"
+      validation_311_reference: "data/raw/sf_citywide/sf_311_20230109_floods.gpkg"
+      validation_311_start_utc: "2023-01-09T00:00:00"
+      validation_311_end_utc: "2023-01-11T00:00:00"
+    - id: "ar_20240204"
+      label: "Feb 4, 2024 Atmospheric River"
+      scenario: "sf_citywide_ar_20240204"
+      depth_file: "data/processed/sf_citywide/sf_citywide_ar_20240204_depth_2m.tif"
+      validation_311_reference: "data/raw/sf_citywide/sf_311_20240204_floods.gpkg"
+      validation_311_start_utc: "2024-02-04T00:00:00"
+      validation_311_end_utc: "2024-02-06T00:00:00"
   report_markdown_file: "docs/reports/sf_v02_validation.md"
   sweep_drainage_rates_mm_hr: [5.0]
   sweep_manning_n_paved: [0.030]

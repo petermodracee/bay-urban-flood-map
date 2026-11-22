@@ -23,8 +23,8 @@
 - [x] Ablate Tier 1a alone and Tier 1a + 1b independently on `sf_citywide` against frozen v0.2 Tier 0 (`5.0 mm/hr`).
 
 ## Phase 3 (Upgrade 3): Multi-Storm AR Hindcast Ensemble (`Eilander et al., 2023`)
-- [ ] Fetch Open-Meteo / NOAA CO-OPS / DataSF 311 records for 3–4 historical San Francisco atmospheric rivers (e.g., Oct 2021, Dec 31, 2022, Jan 2023, Feb 2024).
-- [ ] Extend `pipeline/03_validate_sf.py` to score the multi-storm ensemble and report per-event and ensemble-mean `ROC-AUC`, capture rate, and lift across `0 / 25 / 50 m` buffers.
+- [x] Fetch Open-Meteo / NOAA CO-OPS / DataSF 311 records for 3–4 historical San Francisco atmospheric rivers (e.g., Oct 2021, Dec 31, 2022, Jan 2023, Feb 2024).
+- [x] Extend `pipeline/03_validate_sf.py` to score the multi-storm ensemble and report per-event and ensemble-mean `ROC-AUC`, capture rate, and lift across `0 / 25 / 50 m` buffers.
 
 ## Phase 4 (Upgrade 4): SFINCS Quadtree Mesh Refinement (`Leijnse et al., 2021`)
 - [ ] Add optional quadtree refinement configuration (`10 m` cells in low-lying urban/coastal corridors, `40–80 m` cells on steep uplands) in `pipeline/02_build_sfincs.py`.

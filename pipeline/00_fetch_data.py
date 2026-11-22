@@ -1153,20 +1153,16 @@ def _fetch_sfei_shoreline_structures(
     )
 
 
-def _fetch_datasf_311(
-    domain: Mapping[str, Any],
+def _fetch_datasf_311_window(
+    out_path: Path,
+    start_utc: str,
+    end_utc: str,
     buffered_wgs84_bbox: tuple[float, float, float, float],
     force: bool,
 ) -> None:
-    out_raw = domain.get("validation_311_reference")
-    if not out_raw:
-        return
-    out_path = Path(out_raw)
     if out_path.exists() and not force:
         print(f"[00_fetch_data] Skipping existing {out_path}")
         return
-    start_utc = str(domain["validation_311_start_utc"])
-    end_utc = str(domain["validation_311_end_utc"])
     where_clause = (
         f"requested_datetime >= '{start_utc}' AND requested_datetime < '{end_utc}' "
         "AND (lower(service_name) like '%flood%' OR lower(service_subtype) like '%flood%' "
@@ -1191,6 +1187,41 @@ def _fetch_datasf_311(
     print(
         f"[00_fetch_data] Wrote DataSF 311 flood reports ({len(gdf)} features) -> {out_path}"
     )
+
+
+def _fetch_datasf_311(
+    domain: Mapping[str, Any],
+    buffered_wgs84_bbox: tuple[float, float, float, float],
+    force: bool,
+) -> None:
+    out_raw = domain.get("validation_311_reference")
+    if not out_raw:
+        return
+    _fetch_datasf_311_window(
+        out_path=Path(out_raw),
+        start_utc=str(domain["validation_311_start_utc"]),
+        end_utc=str(domain["validation_311_end_utc"]),
+        buffered_wgs84_bbox=buffered_wgs84_bbox,
+        force=force,
+    )
+
+
+def _fetch_ensemble_311(
+    cfg: Mapping[str, Any],
+    buffered_wgs84_bbox: tuple[float, float, float, float],
+    force: bool,
+) -> None:
+    for ev in cfg.get("validation", {}).get("hindcast_ensemble") or []:
+        out_raw = ev.get("validation_311_reference")
+        if not out_raw:
+            continue
+        _fetch_datasf_311_window(
+            out_path=Path(out_raw),
+            start_utc=str(ev["validation_311_start_utc"]),
+            end_utc=str(ev["validation_311_end_utc"]),
+            buffered_wgs84_bbox=buffered_wgs84_bbox,
+            force=force,
+        )
 
 
 def fetch_data(config_path: Path, force: bool = False) -> None:
@@ -1270,6 +1301,11 @@ def fetch_data(config_path: Path, force: bool = False) -> None:
     )
     _fetch_datasf_311(
         domain=domain,
+        buffered_wgs84_bbox=buffered_wgs84_bbox,
+        force=force,
+    )
+    _fetch_ensemble_311(
+        cfg=cfg,
         buffered_wgs84_bbox=buffered_wgs84_bbox,
         force=force,
     )

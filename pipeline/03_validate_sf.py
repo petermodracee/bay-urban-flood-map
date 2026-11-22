@@ -574,6 +574,80 @@ def compute_311_validation_metrics(
     }
 
 
+def aggregate_ensemble_311_metrics(
+    event_results: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Aggregate per-storm 311 validation metrics across a multi-storm AR ensemble."""
+    if not event_results:
+        raise ValueError("event_results must not be empty.")
+
+    radii = sorted(
+        {float(b["radius_m"]) for ev in event_results for b in ev["by_buffer"]}
+    )
+    thresholds = sorted(
+        {
+            thr
+            for ev in event_results
+            for b in ev["by_buffer"]
+            for thr in b["thresholds"]
+        }
+    )
+
+    ensemble_mean_by_buffer: list[dict[str, Any]] = []
+    for r_m in radii:
+        matching_bufs = [
+            b
+            for ev in event_results
+            for b in ev["by_buffer"]
+            if math.isclose(float(b["radius_m"]), r_m)
+        ]
+        aucs = [
+            float(b["ar_roc_auc"])
+            for b in matching_bufs
+            if b.get("ar_roc_auc") is not None
+        ]
+        thr_means: dict[str, Any] = {}
+        for thr in thresholds:
+            t_rows = [
+                b["thresholds"][thr]
+                for b in matching_bufs
+                if thr in b.get("thresholds", {})
+            ]
+            lifts = [float(t["lift"]) for t in t_rows if t.get("lift") is not None]
+            thr_means[thr] = {
+                "capture_rate": round(
+                    float(np.mean([float(t["capture_rate"]) for t in t_rows])), 4
+                ),
+                "control_rate": round(
+                    float(np.mean([float(t["control_rate"]) for t in t_rows])), 4
+                ),
+                "lift": round(float(np.mean(lifts)), 3) if lifts else None,
+            }
+        ensemble_mean_by_buffer.append(
+            {
+                "radius_m": r_m,
+                "ar_roc_auc": round(float(np.mean(aucs)), 6) if aucs else None,
+                "thresholds": thr_means,
+            }
+        )
+
+    return {
+        "n_events": len(event_results),
+        "total_311_points": sum(int(ev["valid_land_points"]) for ev in event_results),
+        "events": [
+            {
+                "id": ev["id"],
+                "label": ev.get("label", ev["id"]),
+                "scenario": ev["scenario"],
+                "valid_land_points": int(ev["valid_land_points"]),
+                "by_buffer": list(ev["by_buffer"]),
+            }
+            for ev in event_results
+        ],
+        "ensemble_mean": {"by_buffer": ensemble_mean_by_buffer},
+    }
+
+
 def render_v02_validation_markdown(
     sfpuc_summary: Mapping[str, Any],
     neighborhood_rows: Sequence[Mapping[str, Any]],
@@ -1281,6 +1355,80 @@ def validate_sf(
         print(f"[03_validate_sf] Wrote hindcast depth -> {hindcast_depth_file}")
         print(f"[03_validate_sf] Wrote 3-way metrics -> {metrics_3way_path}")
         print(f"[03_validate_sf] Wrote validation report -> {report_path}")
+
+    ensemble_cfg = list(val_cfg.get("hindcast_ensemble") or [])
+    if ensemble_cfg:
+        event_results: list[dict[str, Any]] = []
+        for ev in ensemble_cfg:
+            ev_scenario = str(ev["scenario"])
+            ev_map_nc = Path(cfg["paths"]["runs_dir"]) / ev_scenario / "sfincs_map.nc"
+            ev_311_path = Path(ev["validation_311_reference"])
+            if not ev_map_nc.exists() or not ev_311_path.exists():
+                print(
+                    f"[03_validate_sf] Skipping ensemble event {ev['id']} "
+                    f"(missing {ev_map_nc} or {ev_311_path})"
+                )
+                continue
+            ev_depth_m, _ = _evaluate_run(
+                map_nc_path=ev_map_nc,
+                src_transform=src_transform,
+                project_crs=project_crs,
+                dem_m=dem_m,
+                dst_transform=dst_transform,
+                dem_nodata=dem_nodata,
+                obs_mask=obs_mask,
+                land_valid_mask=land_valid_mask,
+                depth_threshold_m=depth_threshold_m,
+            )
+            ev_depth_file = Path(
+                ev.get(
+                    "depth_file",
+                    summary_path.parent / f"{ev_scenario}_depth_2m.tif",
+                )
+            )
+            _write_float32_geotiff(
+                output_path=ev_depth_file,
+                data=ev_depth_m,
+                transform=dst_transform,
+                crs=project_crs,
+                nodata_value=dem_nodata,
+            )
+            ev_pts_gdf = gpd.read_file(ev_311_path)
+            if ev_pts_gdf.crs is None:
+                raise ValueError(f"{ev_311_path} is missing CRS")
+            ev_metrics = compute_311_validation_metrics(
+                points_gdf_utm=ev_pts_gdf.to_crs(project_crs),
+                ar_depth_m=ev_depth_m,
+                sfpuc_mask=obs_mask,
+                valid_land_mask=land_valid_mask,
+                transform=dst_transform,
+                nodata_value=dem_nodata,
+            )
+            event_results.append(
+                {
+                    "id": str(ev["id"]),
+                    "label": str(ev.get("label", ev["id"])),
+                    "scenario": ev_scenario,
+                    "valid_land_points": ev_metrics["valid_land_points"],
+                    "by_buffer": ev_metrics["by_buffer"],
+                }
+            )
+        if event_results:
+            ensemble_payload = aggregate_ensemble_311_metrics(event_results)
+            ensemble_path = Path(
+                val_cfg.get(
+                    "ensemble_metrics_file",
+                    summary_path.parent / "validation_ensemble_metrics.json",
+                )
+            )
+            ensemble_path.parent.mkdir(parents=True, exist_ok=True)
+            ensemble_path.write_text(
+                json.dumps(ensemble_payload, indent=2) + "\n", encoding="utf-8"
+            )
+            print(
+                f"[03_validate_sf] Wrote {ensemble_payload['n_events']}-storm ensemble "
+                f"metrics ({ensemble_payload['total_311_points']} 311 pts) -> {ensemble_path}"
+            )
 
     return summary
 
