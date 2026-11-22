@@ -55,13 +55,14 @@ body,
 }
 
 .control-group label,
+.control-label,
 .checkbox-row {
 	font-size: 12px;
 	font-weight: 600;
 	color: #e2e8f0;
 }
 
-#scenario-select {
+.control-group select {
 	width: 100%;
 	padding: 6px 8px;
 	border-radius: 6px;
@@ -69,6 +70,46 @@ body,
 	background: rgba(30, 41, 59, 0.95);
 	color: #f8fafc;
 	font-size: 12px;
+}
+
+.control-group select:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+
+.opc-note {
+	margin: 0;
+	font-size: 11px;
+	color: #94a3b8;
+	min-height: 14px;
+}
+
+.metric-toggle {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 6px;
+}
+
+.metric-btn {
+	padding: 6px 8px;
+	border-radius: 6px;
+	border: 1px solid rgba(148, 163, 184, 0.35);
+	background: rgba(30, 41, 59, 0.7);
+	color: #cbd5e1;
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.metric-btn.active {
+	background: #0284c7;
+	border-color: #38bdf8;
+	color: #ffffff;
+}
+
+.metric-btn:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
 }
 
 #opacity-slider {
@@ -93,6 +134,10 @@ body,
 .checkbox-row input {
 	accent-color: #f59e0b;
 	cursor: pointer;
+}
+
+.checkbox-311 input {
+	accent-color: #f43f5e;
 }
 
 .legend-section h2 {

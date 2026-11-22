@@ -40,10 +40,10 @@ Goal: Scale the calibrated v0.1 pipeline (`drainage_rate_mm_hr: 5.0`, `manning_n
 - [x] Export citywide simplified `sf_sfpuc_100yr_benchmark.geojson` (`< 2 MB`), `sf_311_20221231_floods.geojson`, and multi-scenario `manifest.json` (including `2024 CA OPC` horizon metadata if needed in UI labels).
 
 ## Phase 5: Compound SLR & Dual-Validation Viewer (`web/`)
-- [ ] Upgrade control panel to select **Storm** (`10-Yr`, `100-Yr`, `Dec 31, 2022 AR`) × **SLR** (`Today`, `+1 ft`, `+3 ft`, `+5 ft` with 2024 CA OPC pathway labels) × **Metric** (`Total Depth` vs. `Added SLR Delta`).
-- [ ] Add toggleable **Dec 31, 2022 311 Flood Reports** point overlay alongside the SFPUC 100-Year polygon toggle.
-- [ ] Update initial map center/bounds to frame all of San Francisco (`[-122.445, 37.760]`, zoom `12.0`).
-- [ ] Verify Node tests (`node --test`), `npm run lint`, `npm run build`, and `vite preview` Range serving.
+- [x] Upgrade control panel to select **Storm** (`10-Yr`, `100-Yr`, `Dec 31, 2022 AR`) × **SLR** (`Today`, `+1 ft`, `+3 ft`, `+5 ft` with 2024 CA OPC pathway labels) × **Metric** (`Total Depth` vs. `Added SLR Delta`).
+- [x] Add toggleable **Dec 31, 2022 311 Flood Reports** point overlay alongside the SFPUC 100-Year polygon toggle.
+- [x] Update initial map center/bounds to frame all of San Francisco (`[-122.445, 37.760]`, zoom `12.0`).
+- [x] Verify Node tests (`node --test`), `npm run lint`, `npm run build`, and `vite preview` Range serving.
 
 ---
 
