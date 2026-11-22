@@ -2,7 +2,7 @@
 
 An open-source urban stormwater and compound sea level rise (SLR) flood model and serverless web viewer for the San Francisco Bay Area, built with **HydroMT-SFINCS** and **MapLibre GL JS + Cloud Optimized GeoTIFFs (COGs)**.
 
-**Status:** `v0.2` complete — full San Francisco citywide compound SLR (`+0/+1/+3/+5 ft`) + Dec 31, 2022 Atmospheric River hindcast, dual validation against SFPUC & 424 SF 311 flood reports, derived SLR delta COGs, and interactive MapLibre viewer. Next up: `v0.3` static cloud hosting and `v0.4` Bay-margin separate-MS4 pilot + literature-backed upgrades ([`docs/plan/PLAN_V04.md`](docs/plan/PLAN_V04.md)).
+**Status:** `v0.2` complete — full San Francisco citywide compound SLR (`+0/+1/+3/+5 ft`) + Dec 31, 2022 Atmospheric River hindcast, dual validation against SFPUC & 424 SF 311 flood reports, derived SLR delta COGs, and interactive MapLibre viewer. Next up: `v0.3` static cloud hosting ([`docs/plan/PLAN_V03.md`](docs/plan/PLAN_V03.md)), `v0.4` SF literature-backed upgrades & ablation ([`docs/plan/PLAN_V04.md`](docs/plan/PLAN_V04.md)), and `v0.5` East/South Bay MS4 expansion.
 
 > **Note:** This is a screening-level 2D overland pooling and coastal-compound flood model (see [`docs/METHODS.md`](docs/METHODS.md)). It is not a 1D parcel-level storm-pipe capacity model or a regulatory FEMA flood map.
 
@@ -34,7 +34,8 @@ An open-source urban stormwater and compound sea level rise (SLR) flood model an
 │       ├── ROADMAP.md        # Milestone index & future backlog
 │       ├── PLAN_V01.md       # v0.1 ~20 km² SF slice checklist (complete)
 │       ├── PLAN_V02.md       # v0.2 citywide SF compound SLR plan (complete)
-│       └── PLAN_V04.md       # v0.4 MS4 pilot & peer-reviewed upgrades plan
+│       ├── PLAN_V03.md       # v0.3 static COG hosting & deployment plan
+│       └── PLAN_V04.md       # v0.4 SF literature upgrades & ablation plan
 ├── configs/
 │   ├── sf_citywide.yml       # Citywide SF (20 m / 2 m) + AR hindcast config
 │   └── sf_benchmark.yml      # v0.1 ~20 km² SF benchmark slice config

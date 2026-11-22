@@ -7,7 +7,7 @@ The repo has two decoupled halves connected only by static files in `data/web_ou
 - **`pipeline/` (Python + Docker):** Uses `HydroMT-SFINCS` (2D rain-on-grid with 1m–2m subgrid terrain) to simulate storm + SLR scenarios and export `EPSG:3857` Cloud Optimized GeoTIFFs (COGs).
 - **`web/` (Vite + MapLibre GL JS):** A serverless static web viewer that streams those COGs directly in the browser with client-side color ramps and click-to-query flood depths.
 
-**Current Focus:** `v0.2` citywide San Francisco compound SLR + Dec 31, 2022 AR hindcast complete (`main`); preparing `v0.3` static hosting and `v0.4` Bay-margin MS4 pilot + peer-reviewed upgrades (`docs/plan/PLAN_V04.md`).
+**Current Focus:** `v0.2` citywide San Francisco compound SLR + Dec 31, 2022 AR hindcast complete (`main`); preparing `v0.3` static hosting (`docs/plan/PLAN_V03.md`), `v0.4` SF literature upgrades & ablation (`docs/plan/PLAN_V04.md`), and `v0.5` East/South Bay MS4 expansion.
 
 ## Hard Invariants
 - **Python Environment:** Use `conda-forge` strictly (`environment.yml`). Do not mix `pip` geospatial binaries with conda packages.
