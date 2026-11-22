@@ -5,6 +5,7 @@ import {
 	locationValues,
 	setColorFunction,
 } from "@geomatico/maplibre-cog-protocol";
+import { resolveDataAssetUrl } from "./dataUrls.js";
 import {
 	createFloodColorRamp,
 	formatDepth,
@@ -22,9 +23,22 @@ import {
 import "./style.css";
 
 const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
-const MANIFEST_URL = `${window.location.origin}/data/manifest.json`;
-const BENCHMARK_GEOJSON_URL = `${window.location.origin}/data/sf_sfpuc_100yr_benchmark.geojson`;
-const FLOODS_311_GEOJSON_URL = `${window.location.origin}/data/sf_311_20221231_floods.geojson`;
+const DATA_BASE_URL = import.meta.env.VITE_DATA_BASE_URL;
+const MANIFEST_URL = resolveDataAssetUrl(
+	"manifest.json",
+	DATA_BASE_URL,
+	window.location.origin,
+);
+const BENCHMARK_GEOJSON_URL = resolveDataAssetUrl(
+	"sf_sfpuc_100yr_benchmark.geojson",
+	DATA_BASE_URL,
+	window.location.origin,
+);
+const FLOODS_311_GEOJSON_URL = resolveDataAssetUrl(
+	"sf_311_20221231_floods.geojson",
+	DATA_BASE_URL,
+	window.location.origin,
+);
 
 const FLOOD_SOURCE_ID = "flood-cog";
 const FLOOD_LAYER_ID = "flood-depth-layer";
@@ -74,11 +88,7 @@ map.addControl(
 const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: true });
 
 function resolveDataUrl(urlOrPath) {
-	if (/^https?:\/\//i.test(urlOrPath)) {
-		return urlOrPath;
-	}
-	const normalized = urlOrPath.startsWith("/") ? urlOrPath : `/${urlOrPath}`;
-	return `${window.location.origin}${normalized}`;
+	return resolveDataAssetUrl(urlOrPath, DATA_BASE_URL, window.location.origin);
 }
 
 function escapeHtml(text) {
@@ -468,3 +478,71 @@ map.on("click", async (e) => {
 			.addTo(map);
 	}
 });
+
+const DISCLAIMER_STORAGE_KEY = "bayUrbanFloodMapDisclaimerAcceptedV1";
+
+function initDisclaimerModal() {
+	const modal = document.getElementById("disclaimer-modal");
+	const agreeBtn = document.getElementById("disclaimer-agree-btn");
+	const reopenBtn = document.getElementById("reopen-disclaimer-btn");
+	if (!modal || !agreeBtn) {
+		return;
+	}
+
+	let accepted = false;
+	try {
+		accepted = window.localStorage.getItem(DISCLAIMER_STORAGE_KEY) === "1";
+	} catch {
+		accepted = false;
+	}
+
+	if (!accepted) {
+		modal.hidden = false;
+		agreeBtn.focus();
+	}
+
+	agreeBtn.addEventListener("click", () => {
+		try {
+			window.localStorage.setItem(DISCLAIMER_STORAGE_KEY, "1");
+		} catch {
+			// Ignore storage errors (e.g. private browsing) and still dismiss.
+		}
+		modal.hidden = true;
+		reopenBtn?.focus();
+	});
+
+	reopenBtn?.addEventListener("click", () => {
+		modal.hidden = false;
+		agreeBtn.focus();
+	});
+}
+
+initDisclaimerModal();
+
+function initPanelToggle() {
+	const controls = document.getElementById("controls");
+	const panelBody = document.getElementById("panel-body");
+	const toggleBtn = document.getElementById("panel-toggle-btn");
+	if (!controls || !panelBody || !toggleBtn) {
+		return;
+	}
+
+	function setCollapsed(collapsed) {
+		panelBody.hidden = collapsed;
+		controls.classList.toggle("collapsed", collapsed);
+		toggleBtn.setAttribute("aria-expanded", String(!collapsed));
+		toggleBtn.setAttribute(
+			"aria-label",
+			collapsed ? "Show controls" : "Hide controls",
+		);
+		toggleBtn.textContent = collapsed ? "Show" : "Hide";
+	}
+
+	setCollapsed(window.matchMedia("(max-width: 640px)").matches);
+
+	toggleBtn.addEventListener("click", () => {
+		setCollapsed(!panelBody.hidden);
+	});
+}
+
+initPanelToggle();

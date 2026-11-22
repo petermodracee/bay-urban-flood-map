@@ -10,9 +10,23 @@
 
     <aside id="controls" aria-label="Flood map controls">
       <header class="panel-header">
-        <h1>SF Bay Urban Flood Map</h1>
-        <p class="subtitle">v0.2 San Francisco Citywide (2 m Subgrid SFINCS)</p>
+        <div class="panel-title-group">
+          <h1>SF Bay Urban Flood Map</h1>
+          <p class="subtitle">v0.2 San Francisco Citywide (2 m Subgrid SFINCS)</p>
+        </div>
+        <button
+          id="panel-toggle-btn"
+          type="button"
+          class="panel-toggle-btn"
+          aria-expanded="true"
+          aria-controls="panel-body"
+          aria-label="Hide controls"
+        >
+          Hide
+        </button>
       </header>
+
+      <div id="panel-body" class="panel-body">
 
       <div class="control-group">
         <label for="storm-select">Storm Event</label>
@@ -84,13 +98,54 @@
       <p id="status-text" class="status-text">
         Click any flooded cell to query depth.
       </p>
+
+      <details class="credits-section">
+        <summary>Data Sources &amp; Credits</summary>
+        <ul class="credits-list">
+          <li><strong>Terrain &amp; Soils:</strong> USGS 3DEP / Annual NLCD; USDA NRCS SSURGO</li>
+          <li><strong>Shoreline &amp; Urban:</strong> SFEI SF Bay Shore Inventory (GNU GPL v3.0); &copy; OpenStreetMap contributors (ODbL 1.0); DataSF / SFPUC &amp; SF 311 (PDDL)</li>
+          <li><strong>Tides &amp; Rain:</strong> NOAA CO-OPS / Atlas 14; Weather data by Open-Meteo.com (CC BY 4.0)</li>
+          <li><strong>Engine &amp; Code:</strong> Deltares SFINCS; viewer &amp; pipeline code under Apache-2.0 (<a href="https://github.com/petermodracee/bay-urban-flood-map/blob/main/docs/DATA_SOURCES.md" target="_blank" rel="noopener noreferrer">Data Sources</a> &middot; <a href="https://github.com/petermodracee/bay-urban-flood-map/blob/main/docs/METHODS.md" target="_blank" rel="noopener noreferrer">Methods</a>)</li>
+        </ul>
+        <button id="reopen-disclaimer-btn" type="button" class="link-btn">View Disclaimer</button>
+      </details>
+      </div>
     </aside>
 
-    <div id="disclaimer-banner" role="note">
-      <strong>Experimental Screening Model:</strong> Simulates 2D overland
-      rainfall pooling and coastal tidal overtopping/backflow using a uniform
-      5 mm/hr drainage proxy. Not a 1D storm-pipe surcharge or FEMA regulatory
-      floodplain map.
+    <div
+      id="disclaimer-modal"
+      class="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="disclaimer-title"
+      hidden
+    >
+      <div class="modal-card">
+        <h2 id="disclaimer-title">Experimental Screening Model &mdash; Disclaimer</h2>
+        <p>
+          This viewer presents outputs from an experimental 2D overland rainfall
+          pooling and coastal tidal overtopping/backflow screening model using a
+          uniform 5 mm/hr drainage proxy.
+        </p>
+        <p>
+          It is <strong>not</strong> a 1D storm-pipe surcharge model or a FEMA
+          regulatory floodplain map, and <strong>should not be used for official,
+          regulatory, emergency, or planning purposes</strong>.
+        </p>
+        <div class="modal-actions">
+          <a
+            class="modal-link"
+            href="https://github.com/petermodracee/bay-urban-flood-map/blob/main/docs/METHODS.md"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Methodology &amp; Limitations
+          </a>
+          <button id="disclaimer-agree-btn" type="button" class="primary-btn">
+            I Agree
+          </button>
+        </div>
+      </div>
     </div>
 
     <script type="module" src="/src/main.js"></script>
