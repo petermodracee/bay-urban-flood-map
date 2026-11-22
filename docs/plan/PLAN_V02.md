@@ -32,7 +32,7 @@ Goal: Scale the calibrated v0.1 pipeline (`drainage_rate_mm_hr: 5.0`, `manning_n
 - [x] Inspect top false positives/negatives across citywide corridors and resolve any remaining unburned underpasses or shoreline berm gaps before running the full matrix.
 
 ## Phase 2B: Full 8-Scenario Compound SLR Matrix (`pipeline/02_build_sfincs.py`)
-- [ ] Once Phase 3 validation passes, run the remaining 7 scenarios (`sf_100yr_slr{1,3,5}ft` and `sf_10yr_slr{0,1,3,5}ft`) with dynamic NOAA `9414290` tidal boundary conditions.
+- [x] Once Phase 3 validation passes, run the remaining 7 scenarios (`sf_100yr_slr{1,3,5}ft` and `sf_10yr_slr{0,1,3,5}ft`) with dynamic NOAA `9414290` tidal boundary conditions.
 
 ## Phase 4: Derived SLR Deltas & Multi-Scenario COG Export (`pipeline/04_export_cog.py`)
 - [ ] Compute derived **drainage-lock delta grids** (`delta = max(0, depth(storm + SLR) - depth(storm + 0 ft SLR))`) for `+1 / +3 / +5 ft` SLR across `10yr` and `100yr` storms.
