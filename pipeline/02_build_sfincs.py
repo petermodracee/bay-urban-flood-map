@@ -15,9 +15,13 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import rasterio
+import xarray as xr
 import yaml
 from hydromt_sfincs import SfincsModel
 from pyproj import CRS
+from rasterio.features import rasterize
+from rasterio.transform import from_origin
+from rasterio.warp import Resampling, reproject
 from shapely.geometry import Point
 
 
@@ -322,6 +326,226 @@ def write_sfincs_waterlevel_files(
     return bnd_path, bzs_path
 
 
+def compute_tier1a_drainage_rate_grid(
+    impervious_pct: np.ndarray,
+    landcover: np.ndarray,
+    base_rate_mm_hr: float = 2.0,
+    max_rate_mm_hr: float = 10.0,
+) -> np.ndarray:
+    """Compute Tier 1a 2D urban drainage abstraction (mm/hr) from NLCD imperviousness."""
+    if base_rate_mm_hr < 0 or max_rate_mm_hr < base_rate_mm_hr:
+        raise ValueError(
+            f"Invalid Tier 1a rates: base={base_rate_mm_hr}, max={max_rate_mm_hr}"
+        )
+    valid_imp = (impervious_pct >= 0.0) & (impervious_pct <= 100.0)
+    f_imp = np.clip(np.where(valid_imp, impervious_pct / 100.0, 0.0), 0.0, 1.0)
+    is_water = landcover == 11
+    is_urban = (f_imp > 0.0) | np.isin(landcover, [21, 22, 23, 24])
+    rate_mm_hr = np.where(
+        (~is_water) & is_urban,
+        base_rate_mm_hr + (max_rate_mm_hr - base_rate_mm_hr) * f_imp,
+        0.0,
+    )
+    return rate_mm_hr.astype(np.float32)
+
+
+def compute_tier1b_effective_drainage(
+    drainage_1a_mm_hr: np.ndarray,
+    dem_m: np.ndarray,
+    tide_m: float | np.ndarray,
+    head_full_m: float = 1.5,
+    polder_mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """Attenuate Tier 1a gravity drainage smoothly as (DEM - tide(t)) -> 0."""
+    if head_full_m <= 0:
+        raise ValueError(f"head_full_m must be positive, got {head_full_m}")
+    tide_arr = np.asarray(tide_m, dtype=np.float32)
+    if tide_arr.ndim == 0:
+        head_m = dem_m.astype(np.float32) - float(tide_arr)
+        factor = np.clip(head_m / float(head_full_m), 0.0, 1.0)
+        if polder_mask is not None:
+            factor = np.where(polder_mask, 1.0, factor)
+        return (drainage_1a_mm_hr * factor).astype(np.float32)
+    if tide_arr.ndim == 1:
+        head_m = dem_m[None, :, :].astype(np.float32) - tide_arr[:, None, None]
+        factor = np.clip(head_m / float(head_full_m), 0.0, 1.0)
+        if polder_mask is not None:
+            factor = np.where(polder_mask[None, :, :], 1.0, factor)
+        return (drainage_1a_mm_hr[None, :, :] * factor).astype(np.float32)
+    raise ValueError(f"tide_m must be scalar or 1D array, got shape {tide_arr.shape}")
+
+
+def build_gridded_net_precip_da(
+    gross_precip_series: pd.Series,
+    drainage_mm_hr: np.ndarray,
+    x_coords: np.ndarray,
+    y_coords: np.ndarray,
+    project_crs: str,
+) -> xr.DataArray:
+    """Build SFINCS gridded net precipitation DataArray (time, y, x) in mm/hr."""
+    assert_crs_equals(project_crs, "EPSG:26910", "config.project.crs")
+    gross = gross_precip_series.to_numpy(dtype=np.float32)
+    if drainage_mm_hr.ndim == 2:
+        net_rain = np.maximum(0.0, gross[:, None, None] - drainage_mm_hr[None, :, :])
+    elif drainage_mm_hr.ndim == 3:
+        if drainage_mm_hr.shape[0] != len(gross):
+            raise ValueError(
+                f"3D drainage time length {drainage_mm_hr.shape[0]} != precip {len(gross)}"
+            )
+        net_rain = np.maximum(0.0, gross[:, None, None] - drainage_mm_hr)
+    else:
+        raise ValueError(f"drainage_mm_hr must be 2D or 3D, got {drainage_mm_hr.ndim}D")
+
+    da = xr.DataArray(
+        net_rain.astype(np.float32),
+        dims=("time", "y", "x"),
+        coords={
+            "time": pd.DatetimeIndex(gross_precip_series.index, name="time"),
+            "y": np.asarray(y_coords, dtype=np.float64),
+            "x": np.asarray(x_coords, dtype=np.float64),
+        },
+        name="precip_2d",
+    )
+    return da.rio.write_crs(project_crs)
+
+
+def _reproject_raster_to_grid(
+    src_path: Path,
+    dst_shape: tuple[int, int],
+    dst_transform: Any,
+    dst_crs: str,
+    resampling: Resampling,
+    dst_dtype: np.dtype[Any],
+) -> np.ndarray:
+    if not src_path.exists():
+        raise FileNotFoundError(f"Required drainage input raster not found: {src_path}")
+    dst = np.zeros(dst_shape, dtype=dst_dtype)
+    with rasterio.open(src_path) as src:
+        if src.crs is None:
+            raise ValueError(f"{src_path} is missing CRS")
+        reproject(
+            source=rasterio.band(src, 1),
+            destination=dst,
+            src_transform=src.transform,
+            src_crs=src.crs,
+            dst_transform=dst_transform,
+            dst_crs=dst_crs,
+            resampling=resampling,
+        )
+    return dst
+
+
+def _load_resampled_drainage_inputs(
+    cfg: Mapping[str, Any],
+    bbox_epsg26910: Sequence[float],
+    grid_res_m: float,
+    project_crs: str,
+    drainage_tier: str,
+) -> tuple[
+    np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, np.ndarray, np.ndarray
+]:
+    """Load and resample NLCD impervious/landcover, hydro-DEM, and optional polder mask."""
+    assert_crs_equals(project_crs, "EPSG:26910", "config.project.crs")
+    domain = cfg["domain"]
+    if drainage_tier == "tier2":
+        storm_drain_src = domain.get("storm_drain_source")
+        if not storm_drain_src:
+            raise ValueError(
+                "drainage_tier='tier2' requires domain.storm_drain_source to be configured."
+            )
+        if not Path(storm_drain_src).exists():
+            raise FileNotFoundError(
+                f"Tier 2 storm_drain_source not found: {storm_drain_src}"
+            )
+
+    xmin, ymin, xmax, ymax = (float(v) for v in bbox_epsg26910)
+    ncols = max(1, math.ceil((xmax - xmin) / grid_res_m))
+    nrows = max(1, math.ceil((ymax - ymin) / grid_res_m))
+    # North-up transform for rasterio.warp.reproject, then flip to y-ascending for SFINCS NetCDF
+    north_up_transform = from_origin(xmin, ymax, grid_res_m, grid_res_m)
+    dst_shape = (nrows, ncols)
+
+    imp = _reproject_raster_to_grid(
+        Path(domain["nlcd_impervious_source"]),
+        dst_shape,
+        north_up_transform,
+        project_crs,
+        Resampling.bilinear,
+        np.dtype(np.float32),
+    )
+    lc = _reproject_raster_to_grid(
+        Path(domain["nlcd_landcover_source"]),
+        dst_shape,
+        north_up_transform,
+        project_crs,
+        Resampling.nearest,
+        np.dtype(np.int32),
+    )
+    dem = _reproject_raster_to_grid(
+        Path(cfg["terrain_prep"]["hydro_dem_file"]),
+        dst_shape,
+        north_up_transform,
+        project_crs,
+        Resampling.bilinear,
+        np.dtype(np.float32),
+    )
+
+    polder_mask: np.ndarray | None = None
+    polder_src = domain.get("polder_mask_source")
+    if polder_src:
+        polder_path = Path(polder_src)
+        if not polder_path.exists():
+            raise FileNotFoundError(f"polder_mask_source not found: {polder_path}")
+        gdf = gpd.read_file(polder_path)
+        if gdf.crs is not None and CRS.from_user_input(gdf.crs) != CRS.from_user_input(
+            project_crs
+        ):
+            gdf = gdf.to_crs(project_crs)
+        if len(gdf) > 0:
+            polder_mask = (
+                rasterize(
+                    [(geom, 1) for geom in gdf.geometry if geom is not None],
+                    out_shape=dst_shape,
+                    transform=north_up_transform,
+                    fill=0,
+                    dtype=np.uint8,
+                )
+                == 1
+            )
+
+    # Flip vertically so y increases monotonically (SFINCS NetCDF convention)
+    imp = np.flipud(imp)
+    lc = np.flipud(lc)
+    dem = np.flipud(dem)
+    if polder_mask is not None:
+        polder_mask = np.flipud(polder_mask)
+
+    x_coords = xmin + (np.arange(ncols, dtype=np.float64) + 0.5) * grid_res_m
+    y_coords = ymax - (np.arange(nrows, dtype=np.float64) + 0.5) * grid_res_m
+    y_coords = y_coords[::-1]
+    return imp, lc, dem, polder_mask, x_coords, y_coords
+
+
+def _interpolate_mean_tide_series(
+    tidal_rows: Sequence[Mapping[str, Any]],
+    stations: Sequence[Mapping[str, Any]],
+    tref: datetime,
+    target_times: pd.DatetimeIndex,
+) -> np.ndarray:
+    """Interpolate mean Bay water level (m NAVD88) onto precipitation timestamps."""
+    t_min = np.array([float(r["time_min"]) for r in tidal_rows], dtype=np.float64)
+    if stations and all(f"wl_{st['id']}_m" in tidal_rows[0] for st in stations):
+        cols = [f"wl_{st['id']}_m" for st in stations]
+        wl = np.mean([[float(r[c]) for c in cols] for r in tidal_rows], axis=1)
+    else:
+        wl = np.array([float(r["water_level_m"]) for r in tidal_rows], dtype=np.float64)
+    target_min = np.array(
+        [(ts.to_pydatetime() - tref).total_seconds() / 60.0 for ts in target_times],
+        dtype=np.float64,
+    )
+    return np.interp(target_min, t_min, wl).astype(np.float32)
+
+
 def compute_valid_active_mask(
     dem_2m: np.ndarray,
     nodata_value: float,
@@ -387,6 +611,7 @@ def _build_and_run_single_scenario(
     drainage_rate_mm_hr: float,
     skip_run: bool,
     force: bool,
+    drainage_tier_override: str | None = None,
 ) -> None:
     scenario_id = str(scenario["id"])
     rain_key = str(scenario["rain"])
@@ -434,24 +659,36 @@ def _build_and_run_single_scenario(
         project_crs=project_crs,
     )
 
+    drainage_tier = str(
+        drainage_tier_override or sfincs_cfg.get("drainage_tier", "tier0")
+    ).lower()
+    if drainage_tier not in {"tier0", "tier1a", "tier1b", "tier2"}:
+        raise ValueError(f"Unsupported drainage_tier: {drainage_tier}")
+
     hyetograph_rows = _read_hyetograph_csv(Path(rain_cfg["hyetograph_file"]))
     duration_hr = float(rain_cfg["duration_hr"])
     tref = resolve_reference_time_utc(sfincs_cfg, rain_cfg, slr_cfg)
     tstop = tref + timedelta(hours=duration_hr)
     dtmaxout_s = max(float(sfincs_cfg.get("dtmaxout_s", 86400.0)), duration_hr * 3600.0)
 
+    precip_drainage = drainage_rate_mm_hr if drainage_tier == "tier0" else 0.0
     precip_series = build_precip_series(
         hyetograph_rows=hyetograph_rows,
         reference_time_utc=tref,
         duration_hr=duration_hr,
-        drainage_rate_mm_hr=drainage_rate_mm_hr,
+        drainage_rate_mm_hr=precip_drainage,
     )
 
     run_dir.mkdir(parents=True, exist_ok=True)
+    drainage_label = (
+        f"tier0={drainage_rate_mm_hr:.1f} mm/hr"
+        if drainage_tier == "tier0"
+        else f"{drainage_tier} (netamprfile)"
+    )
     print(
         f"[02_build_sfincs] Building {scenario_id}: {grid_spec['mmax']}x{grid_spec['nmax']} @ "
         f"{grid_spec['dx']} m (subgrid {grid_spec['nr_subgrid_pixels']}x), "
-        f"drainage={drainage_rate_mm_hr:.1f} mm/hr -> {run_dir}"
+        f"drainage={drainage_label} -> {run_dir}"
     )
 
     sf = SfincsModel(root=str(run_dir), mode="w+")
@@ -531,14 +768,65 @@ def _build_and_run_single_scenario(
         "alpha": float(sfincs_cfg.get("alpha", 0.5)),
         "huthresh": float(sfincs_cfg.get("huthresh_m", 0.01)),
         "advection": int(sfincs_cfg.get("advection", 1)),
-        "precipfile": "sfincs.prp",
     }
+    if drainage_tier == "tier0":
+        config_kwargs["precipfile"] = "sfincs.prp"
+    else:
+        config_kwargs["netamprfile"] = "sfincs_netampr.nc"
     if tidal_file:
         config_kwargs["bndfile"] = "sfincs.bnd"
         config_kwargs["bzsfile"] = "sfincs.bzs"
 
     sf.setup_config(**config_kwargs)
-    sf.set_forcing(precip_series.to_xarray(), name="precip")
+    if drainage_tier == "tier0":
+        sf.set_forcing(precip_series.to_xarray(), name="precip")
+    else:
+        drainage_res_m = float(sfincs_cfg.get("drainage_grid_res_m", 40.0))
+        imp, lc, dem_drain, polder_mask, x_coords, y_coords = (
+            _load_resampled_drainage_inputs(
+                cfg=cfg,
+                bbox_epsg26910=domain["bbox_epsg26910"],
+                grid_res_m=drainage_res_m,
+                project_crs=project_crs,
+                drainage_tier=drainage_tier,
+            )
+        )
+        drainage_1a = compute_tier1a_drainage_rate_grid(
+            impervious_pct=imp,
+            landcover=lc,
+            base_rate_mm_hr=float(sfincs_cfg.get("tier1a_base_mm_hr", 2.0)),
+            max_rate_mm_hr=float(sfincs_cfg.get("tier1a_max_mm_hr", 10.0)),
+        )
+        if drainage_tier == "tier1b":
+            if tidal_file:
+                tidal_rows_for_drain = _read_tidal_hydrograph_csv(Path(tidal_file))
+                tide_series = _interpolate_mean_tide_series(
+                    tidal_rows=tidal_rows_for_drain,
+                    stations=list(cfg.get("project", {}).get("tide_gauges") or []),
+                    tref=tref,
+                    target_times=precip_series.index,
+                )
+            else:
+                tide_series = np.full(len(precip_series), -10.0, dtype=np.float32)
+            effective_drainage = compute_tier1b_effective_drainage(
+                drainage_1a_mm_hr=drainage_1a,
+                dem_m=dem_drain,
+                tide_m=tide_series,
+                head_full_m=float(sfincs_cfg.get("tier1b_head_full_m", 1.5)),
+                polder_mask=polder_mask,
+            )
+        else:
+            effective_drainage = drainage_1a
+
+        precip_2d_da = build_gridded_net_precip_da(
+            gross_precip_series=precip_series,
+            drainage_mm_hr=effective_drainage,
+            x_coords=x_coords,
+            y_coords=y_coords,
+            project_crs=project_crs,
+        )
+        sf.set_forcing(precip_2d_da, name="precip_2d")
+
     sf.write()
 
     if tidal_file:
@@ -573,8 +861,12 @@ def _build_and_run_single_scenario(
         )
 
     inp_path = run_dir / "sfincs.inp"
-    prp_path = run_dir / "sfincs.prp"
-    if not inp_path.exists() or not prp_path.exists():
+    expected_precip = (
+        run_dir / "sfincs.prp"
+        if drainage_tier == "tier0"
+        else run_dir / "sfincs_netampr.nc"
+    )
+    if not inp_path.exists() or not expected_precip.exists():
         raise RuntimeError(f"Expected SFINCS build files missing in {run_dir}")
     if tidal_file and (
         not (run_dir / "sfincs.bnd").exists() or not (run_dir / "sfincs.bzs").exists()
@@ -600,6 +892,7 @@ def build_sfincs(
     scenario_id: str | None = None,
     run_all: bool = False,
     drainage_rate_mm_hr: float | None = None,
+    drainage_tier: str | None = None,
     skip_run: bool = False,
     force: bool = False,
 ) -> None:
@@ -621,6 +914,7 @@ def build_sfincs(
             drainage_rate_mm_hr=effective_drainage_mm_hr,
             skip_run=skip_run,
             force=force,
+            drainage_tier_override=drainage_tier,
         )
 
 
@@ -650,6 +944,13 @@ def main() -> None:
         help="Optional override for uniform urban drainage subtraction rate (mm/hr).",
     )
     parser.add_argument(
+        "--drainage-tier",
+        type=str,
+        choices=["tier0", "tier1a", "tier1b", "tier2"],
+        default=None,
+        help="Optional override for storm-drain abstraction tier.",
+    )
+    parser.add_argument(
         "--skip-run",
         action="store_true",
         help="Write SFINCS model files without executing the Docker solver.",
@@ -665,6 +966,7 @@ def main() -> None:
         scenario_id=args.scenario,
         run_all=args.all_scenarios,
         drainage_rate_mm_hr=args.drainage_rate_mm_hr,
+        drainage_tier=args.drainage_tier,
         skip_run=args.skip_run,
         force=args.force,
     )

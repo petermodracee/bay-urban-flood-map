@@ -55,6 +55,8 @@ domain:
   buildings_source: "data/raw/sf_citywide/sf_citywide_buildings.gpkg"
   buildings_url: "https://data.sfgov.org/api/geospatial/ynuv-fyni?method=export&format=GeoJSON"
   shoreline_structures_source: "data/raw/sf_citywide/sf_sfei_shoreline_structures.gpkg"
+  storm_drain_source: null
+  polder_mask_source: null
   sfei_raw_gdb_path: "data/raw/sf_citywide/SFBayShoreInventory_SFEI_2016_0/ESRI ArcGIS/SFBayShoreInventory__SFEI_2016.gdb"
   sfei_raw_layer: "San_Francisco_Bay_Shore_Inventory__100ft_segments_with_elevation"
   validation_reference: "data/raw/sfpuc_100yr_flood_risk.gpkg"
@@ -237,7 +239,12 @@ terrain_prep:
 sfincs_model:
   docker_image: "deltares/sfincs-cpu:latest"
   reference_time_utc: "2020-01-01T00:00:00"
+  drainage_tier: "tier0"  # Kept at tier0 after v0.4 Phase 2 ablation; tier1a/1b/2 available via config or --drainage-tier
   drainage_rate_mm_hr: 5.0
+  drainage_grid_res_m: 40.0
+  tier1a_base_mm_hr: 2.0
+  tier1a_max_mm_hr: 10.0
+  tier1b_head_full_m: 1.5
   dtout_s: 3600.0
   dtmaxout_s: 86400.0
   alpha: 0.75

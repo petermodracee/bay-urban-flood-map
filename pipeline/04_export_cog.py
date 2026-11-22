@@ -140,13 +140,16 @@ def build_manifest_entry(
 
 
 def build_manifest(
-    entries: Sequence[Mapping[str, Any]], version: str = "0.1"
+    entries: Sequence[Mapping[str, Any]],
+    version: str = "0.1",
+    drainage_tier: str | None = None,
 ) -> dict[str, Any]:
     """Build the top-level manifest.json payload."""
-    return {
-        "version": str(version),
-        "scenarios": [dict(entry) for entry in entries],
-    }
+    payload: dict[str, Any] = {"version": str(version)}
+    if drainage_tier is not None:
+        payload["drainage_tier"] = str(drainage_tier)
+    payload["scenarios"] = [dict(entry) for entry in entries]
+    return payload
 
 
 def export_benchmark_geojson(
@@ -601,7 +604,9 @@ def export_cog(
             )
 
     manifest = build_manifest(
-        entries, version=str(export_cfg.get("manifest_version", "0.1"))
+        entries,
+        version=str(export_cfg.get("manifest_version", "0.1")),
+        drainage_tier=str(cfg.get("sfincs_model", {}).get("drainage_tier", "tier0")),
     )
     manifest_path = Path(export_cfg["manifest_file"])
     manifest_path.parent.mkdir(parents=True, exist_ok=True)

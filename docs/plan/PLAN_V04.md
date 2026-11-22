@@ -17,10 +17,10 @@
 - [x] Add unit tests verifying multi-station `sfincs.bnd` / `sfincs.bzs` alignment and run A/B comparison on `sf_citywide`.
 
 ## Phase 2 (Upgrade 2): Tier 1 Bay-Wide 2D Drainage (`Bates et al., 2021`)
-- [ ] Implement **Tier 1a** in `pipeline/02_build_sfincs.py`: compute spatially varying 2D urban drainage abstraction from NLCD imperviousness/land cover and write SFINCS gridded net rainfall (`netamprfile`), keeping SCS Curve Number soil infiltration (`scsfile`) intact.
-- [ ] Implement **Tier 1b** (experimental extension): attenuate Tier 1a gravity drainage smoothly as `(DEM - tide(t)) -> 0`, with explicit polder exclusion flags.
-- [ ] Add optional **Tier 2** config hook (`domain.storm_drain_source: null` by default) for municipal GIS enrichment and record `drainage_tier` in `manifest.json`.
-- [ ] Ablate Tier 1a alone and Tier 1a + 1b independently on `sf_citywide` against frozen v0.2 Tier 0 (`5.0 mm/hr`).
+- [x] Implement **Tier 1a** in `pipeline/02_build_sfincs.py`: compute spatially varying 2D urban drainage abstraction from NLCD imperviousness/land cover and write SFINCS gridded net rainfall (`netamprfile`), keeping SCS Curve Number soil infiltration (`scsfile`) intact.
+- [x] Implement **Tier 1b** (experimental extension): attenuate Tier 1a gravity drainage smoothly as `(DEM - tide(t)) -> 0`, with explicit polder exclusion flags.
+- [x] Add optional **Tier 2** config hook (`domain.storm_drain_source: null` by default) for municipal GIS enrichment and record `drainage_tier` in `manifest.json`.
+- [x] Ablate Tier 1a alone and Tier 1a + 1b independently on `sf_citywide` against frozen v0.2 Tier 0 (`5.0 mm/hr`).
 
 ## Phase 3 (Upgrade 3): Multi-Storm AR Hindcast Ensemble (`Eilander et al., 2023`)
 - [ ] Fetch Open-Meteo / NOAA CO-OPS / DataSF 311 records for 3–4 historical San Francisco atmospheric rivers (e.g., Oct 2021, Dec 31, 2022, Jan 2023, Feb 2024).
