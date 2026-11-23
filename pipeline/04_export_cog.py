@@ -13,9 +13,11 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+import rasterio  # must precede geopandas/pyogrio to avoid GDAL 3.10 double-free
+
+# isort: split
 import geopandas as gpd
 import numpy as np
-import rasterio
 import xarray as xr
 import yaml
 from pyproj import CRS

@@ -997,7 +997,7 @@ def _build_and_run_single_scenario(
     ).lower()
     mrms_file = rain_cfg.get("mrms_qpe_file")
     use_mrms = rain_source == "mrms" and bool(mrms_file)
-    if rain_source == "mrms" and not mrms_file:
+    if rain_source_override == "mrms" and not mrms_file:
         raise ValueError(
             f"rain_source='mrms' requested for {scenario_id}, but mrms_qpe_file is not configured."
         )

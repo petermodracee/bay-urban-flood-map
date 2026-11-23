@@ -5,8 +5,8 @@ Operational engineering specification for `pipeline/` and `configs/`. For full s
 ## 1. Milestones
 - **v0.1 (Complete):** ~20 km² San Francisco Mission/Alemany slice (`10 m` grid / `1 m` subgrid), validated against the SFPUC 100-Year Storm Flood Risk Map.
 - **v0.2 (Complete):** Citywide San Francisco (`20 m` grid / `2 m` subgrid), SFEI shoreline crest enforcement, dynamic NOAA `9414290` tidal boundaries (`+0/+1/+3/+5 ft` SLR), Dec 31, 2022 AR hindcast + 3-way 311 validation, and derived SLR delta COGs.
-- **v0.3 (Planned — see [`docs/plan/PLAN_V03.md`](plan/PLAN_V03.md)):** Static hosting of `data/web_outputs/` (`EPSG:3857` COGs, GeoJSON, `manifest.json`) on Cloudflare R2 / S3 + static `web/` deployment.
-- **v0.4 (Planned — see [`docs/plan/PLAN_V04.md`](plan/PLAN_V04.md)):** Literature-backed upgrades on San Francisco (multi-gauge Bay tides, Tier 1a/1b 2D drainage via `netamprfile`, multi-AR hindcast ensemble, quadtree mesh) ablated against frozen v0.2.
+- **v0.3 (Complete — see [`docs/plan/PLAN_V03.md`](plan/PLAN_V03.md)):** Static hosting of `data/web_outputs/` (`EPSG:3857` COGs, GeoJSON, `manifest.json`) on Cloudflare R2 + Cloudflare Pages.
+- **v0.4 (Complete — see [`docs/plan/PLAN_V04.md`](plan/PLAN_V04.md) & [`docs/reports/sf_v02_vs_v04_ablation.md`](reports/sf_v02_vs_v04_ablation.md)):** Literature-backed upgrades on San Francisco (4-gauge Bay tides, Tier 1a/1b/2 2D drainage via `netamprfile`, 4-AR hindcast ensemble, `40 m -> 10 m` quadtree mesh via `hydromt_sfincs 2.0.0`, and NOAA MRMS 1 km gridded QPE) ablated against frozen v0.2. Retained defaults: 4-gauge Bay tides + NOAA MRMS 1 km QPE for historical ARs + uniform `20 m` Tier 0 (`5.0 mm/hr`), with Tier 1a/1b/2 and `--quadtree` opt-in.
 - **v0.5 (Planned):** East/South Bay separate-MS4 expansion pilot with pumped-polder handling and optional Tier 2 municipal drainage overrides.
 - **v1.0 (Planned):** Regional mosaic across ~100–150 Bay Area sub-basins.
 

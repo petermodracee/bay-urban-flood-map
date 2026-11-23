@@ -31,8 +31,8 @@
 - [x] Benchmark `0 m` / `25 m` 311 hit rate, SFPUC `CSI`, and Docker runtime on `sf_citywide` against the uniform `20 m` grid.
 
 ## Phase 5: Formal v0.2 vs. v0.4 Ablation Report & Living Methods Sync
-- [ ] Generate `docs/reports/sf_v02_vs_v04_ablation.md` comparing each upgrade side-by-side against frozen v0.2; retain only changes that demonstrably improve skill or physical realism.
-- [ ] Update `docs/METHODS.md` and `docs/MODEL_SPEC.md` with the validated v0.4 defaults and re-export updated SF `EPSG:3857` COGs to `data/web_outputs/`.
+- [x] Generate `docs/reports/sf_v02_vs_v04_ablation.md` comparing each upgrade side-by-side against frozen v0.2; retain only changes that demonstrably improve skill or physical realism.
+- [x] Update `docs/METHODS.md` and `docs/MODEL_SPEC.md` with the validated v0.4 defaults and re-export updated SF `EPSG:3857` COGs to `data/web_outputs/`.
 
 ---
 

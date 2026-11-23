@@ -15,15 +15,16 @@ Each component of the pipeline is derived from—or benchmarked against—specif
 
 | Component | Source & Citation | What Is Derived From It | Status |
 | --- | --- | --- | --- |
-| **Automated model assembly** | `Eilander et al. (2023)` | Reproducible `HydroMT-SFINCS` clipping, reprojection, forcing assembly, and multi-event hindcast validation protocol | Implemented (`02_build_sfincs.py`); multi-storm ensemble in **v0.4** |
-| **Reduced-physics compound solver** | `Leijnse et al. (2021)` | 2D local-inertial shallow-water equations with advection/viscosity, coupled rain + tide boundaries, and quadtree mesh refinement | Implemented (`v0.2` regular grid); quadtree in **v0.4** |
+| **Automated model assembly** | `Eilander et al. (2023)` | Reproducible `HydroMT-SFINCS` clipping, reprojection, forcing assembly, and multi-event hindcast validation protocol | Implemented (`02_build_sfincs.py`, 4-AR ensemble in **v0.4**) |
+| **Reduced-physics compound solver** | `Leijnse et al. (2021)` | 2D local-inertial shallow-water equations with advection/viscosity, coupled rain + tide boundaries, and quadtree mesh refinement | Implemented (`v0.2` regular grid; `--quadtree` `40 m → 10 m` opt-in in **v0.4**) |
 | **Subgrid topography & friction** | `van Ormondt et al. (2025)` | Exact subgrid volume–depth and wet-area conveyance lookup tables (`sfincs.sbg`) mapping `2 m` terrain onto `20 m` cells | Implemented (`v0.1`/`v0.2`) |
 | **Urban building representation** | `Schubert & Sanders (2012)` | Building block-out (`+3.0 m` elevation bump + elevated roughness) to route runoff along street corridors rather than inside buildings | Implemented (`01_prep_terrain.py`) |
 | **Upscaled 2D urban raster concepts** | `Sanders & Schubert (2019)` | Fine-scale urban storage/conveyance retention and simplified drainage abstraction concepts for fast regional raster inundation | Conceptual design reference |
-| **2D urban drainage proxy** | `Bates et al. (2021)` | Parameterizing storm-drain removal in 2D from **NLCD urbanization/imperviousness** instead of unobtainable 1D pipe-invert GIS | **v0.4 Tier 1a** (`netamprfile`); v0.2 uses Tier 0 (`5.0 mm/hr`) |
-| **Tide-locked outfall heuristic** | *Experimental extension* | Attenuating Tier 1a 2D drainage capacity as `(DEM - tide(t)) -> 0` (excluding pumped polders) | **v0.4 Tier 1b** (must prove gain over Tier 1a in ablation) |
-| **SF Bay tidal amplification** | `Nederhoff et al. (2021)` | Spatially varying estuarine water levels (tidal amplification toward South Bay + surge) via multi-gauge NOAA CO-OPS interpolation | **v0.4** multi-gauge `sfincs.bnd`/`sfincs.bzs`; v0.2 uses 1 gauge (`9414290`) |
-| **311 crowdsourced validation** | `Agonafir et al. (2022)`; `Lerma et al. (2025)` | Using geo-located municipal 311 flood complaints with buffer capture, control sampling, and `ROC-AUC` to validate urban pluvial models | Implemented (`03_validate_sf.py`) |
+| **2D urban drainage proxy** | `Bates et al. (2021)` | Parameterizing storm-drain removal in 2D from **NLCD urbanization/imperviousness** instead of unobtainable 1D pipe-invert GIS | Implemented (`--drainage-tier tier1a`, **v0.4**); SF default remains Tier 0 (`5.0 mm/hr`) after ablation |
+| **Tide-locked outfall heuristic** | *Experimental extension* | Attenuating Tier 1a 2D drainage capacity as `(DEM - tide(t)) -> 0` (excluding pumped polders) | Implemented (`--drainage-tier tier1b`, **v0.4**); opt-in for **v0.5** MS4s |
+| **SF Bay tidal amplification** | `Nederhoff et al. (2021)` | Spatially varying estuarine water levels (tidal amplification toward South Bay + surge) via multi-gauge NOAA CO-OPS interpolation | **Retained (`v0.4`)** 4-gauge `sfincs.bnd`/`sfincs.bzs` (`9414290`, `9414750`, `9414863`, `9414523`) |
+| **Gridded radar-gauge QPE** | NOAA MRMS (`MultiSensor_QPE_01H_Pass2`) | `1 km` hourly gauge-corrected radar precipitation (`netamprfile`) resolving convective AR rain bands and orographic gradients | **Retained (`v0.4`)** for historical AR hindcasts (`rain_source: "mrms"`) |
+| **311 crowdsourced validation** | `Agonafir et al. (2022)`; `Lerma et al. (2025)` | Using geo-located municipal 311 flood complaints with buffer capture, control sampling, and `ROC-AUC` to validate urban pluvial models | Implemented (`03_validate_sf.py`, 4-AR ensemble in **v0.4**) |
 
 ---
 
@@ -88,7 +89,7 @@ Because complete 1D underground storm-pipe invert elevations and pump curves do 
 - **2024 CA OPC Scenario Matrix:** Crosses `10-yr` (`90.4 mm` / 24 hr) and `100-yr` (`144.0 mm` / 24 hr) alternating-block NOAA Atlas 14 storms with fixed `0`, `+1`, `+3`, `+5 ft` SLR increments added onto a dynamic 24-hr semidiurnal tidal hydrograph (`MHHW 1.85 m + 0.35 m surge`), plus the **Dec 31, 2022 – Jan 1, 2023 Atmospheric River** hindcast (`128.5 mm` / 48 hr Open-Meteo rain + observed NOAA `9414290` tide).
 - **Derived SLR Delta:** Added compound flood depth from sea level rise is isolated as:
   $$\Delta d_{\text{SLR}} = \max\bigl(0,\; d(\text{Storm} + \text{SLR}) - d(\text{Storm} + 0\,\text{ft})\bigr)$$
-- **Planned Multi-Gauge Bay Interpolation (`v0.4`, `Nederhoff et al., 2021`):** San Francisco Bay exhibits strong tidal amplification toward the South Bay plus localized surge/wind setup. In v0.4, multiple NOAA CO-OPS stations (`9414290`, `9414523`, `9414750`, `9414863`, `9415020`) will be supplied in `sfincs.bnd` / `sfincs.bzs` for spatial interpolation along `msk = 2`.
+- **Multi-Gauge Bay Interpolation (`v0.4`, `Nederhoff et al., 2021`):** San Francisco Bay exhibits strong tidal amplification toward the South Bay plus localized surge/wind setup. Validated v0.4 supplies 4 NOAA CO-OPS anchor stations (`9414290` Presidio, `9414750` Alameda, `9414863` Richmond, `9414523` Redwood City) in `sfincs.bnd` / `sfincs.bzs` for spatial interpolation along `msk = 2`. Full v0.2 vs. v0.4 ablation results live in [`docs/reports/sf_v02_vs_v04_ablation.md`](reports/sf_v02_vs_v04_ablation.md).
 
 ---
 

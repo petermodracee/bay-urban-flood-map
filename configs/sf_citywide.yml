@@ -319,7 +319,7 @@ terrain_prep:
 sfincs_model:
   docker_image: "deltares/sfincs-cpu:latest"
   reference_time_utc: "2020-01-01T00:00:00"
-  rain_source: "default"  # "default" (Open-Meteo/Atlas14) or "mrms" (NOAA MRMS 1 km QPE)
+  rain_source: "mrms"  # "mrms" applies NOAA MRMS 1 km QPE where mrms_qpe_file is set (AR hindcasts); design storms use Atlas 14 CSVs
   drainage_tier: "tier0"  # Kept at tier0 after v0.4 Phase 2 ablation; tier1a/1b/2 available via config or --drainage-tier
   drainage_rate_mm_hr: 5.0
   drainage_grid_res_m: 40.0
@@ -394,5 +394,5 @@ export:
   benchmark_simplify_tolerance_m: 1.0
   floods_311_geojson_file: "data/web_outputs/sf_311_20221231_floods.geojson"
   manifest_file: "data/web_outputs/manifest.json"
-  manifest_version: "0.2"
+  manifest_version: "0.4"
   web_data_url_prefix: "/data"
