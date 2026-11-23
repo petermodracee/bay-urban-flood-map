@@ -48,6 +48,8 @@ NOAA_COOPS_URL = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
 OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 CALTRANS_D4_LCS_URL = "https://cwwp2.dot.ca.gov/data/d4/lcs/lcsStatusD04.json"
 CALTRANS_D4_CHP_URL = "https://cwwp2.dot.ca.gov/data/d4/chp/chpIncidentsD04.json"
+OPENFEMA_NFIP_CLAIMS_URL = "https://www.fema.gov/api/open/v2/FimaNfipClaims"
+TIGERWEB_TRACTS_URL = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/0/query"
 FLOOD_ROAD_CLOSURE_KEYWORDS = (
     "flood",
     "flooding",
@@ -743,6 +745,149 @@ def parse_511_events_json(
             crs="EPSG:4326",
         )
     return gpd.GeoDataFrame(parsed_rows, geometry=geometries, crs="EPSG:4326")
+
+
+def _normalize_census_tract(value: Any) -> str | None:
+    """Normalize a census tract identifier to an 11-digit FIPS/GEOID string."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "null", "na"}:
+        return None
+    text = text.removesuffix(".0")
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if not digits:
+        return None
+    return digits.zfill(11) if len(digits) <= 11 else digits
+
+
+def _safe_float(value: Any) -> float:
+    if value is None:
+        return 0.0
+    try:
+        val = float(value)
+        return val if math.isfinite(val) else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def parse_openfema_nfip_claims(
+    payload: Mapping[str, Any] | Sequence[Mapping[str, Any]],
+    *,
+    county_fips: str | None = None,
+    start_year: int | None = None,
+) -> pd.DataFrame:
+    """Parse OpenFEMA FimaNfipClaims JSON into tract-level aggregated claim totals."""
+    columns = [
+        "census_tract",
+        "claim_count",
+        "paid_claim_count",
+        "paid_building_usd",
+        "paid_contents_usd",
+        "total_paid_usd",
+    ]
+    if isinstance(payload, Mapping):
+        records = payload.get("FimaNfipClaims") or payload.get("data") or []
+    else:
+        records = payload
+
+    county_norm = str(county_fips).strip().zfill(5) if county_fips else None
+    agg: dict[str, dict[str, float | int]] = {}
+    for rec in records:
+        if not isinstance(rec, Mapping):
+            continue
+        tract = _normalize_census_tract(rec.get("censusTract"))
+        if tract is None:
+            continue
+        if county_norm is not None:
+            rec_county = str(rec.get("countyCode") or "").strip()
+            rec_county_norm = rec_county.zfill(5) if rec_county.isdigit() else ""
+            if rec_county_norm:
+                if rec_county_norm != county_norm:
+                    continue
+            elif not tract.startswith(county_norm):
+                continue
+        if start_year is not None:
+            year_val = rec.get("yearOfLoss")
+            try:
+                if year_val is None or int(year_val) < int(start_year):
+                    continue
+            except (TypeError, ValueError):
+                continue
+
+        paid_bldg = _safe_float(rec.get("amountPaidOnBuildingClaim"))
+        paid_cont = _safe_float(rec.get("amountPaidOnContentsClaim"))
+        paid_icc = _safe_float(rec.get("amountPaidOnIncreasedCostOfComplianceClaim"))
+        total_paid = paid_bldg + paid_cont + paid_icc
+
+        bucket = agg.setdefault(
+            tract,
+            {
+                "claim_count": 0,
+                "paid_claim_count": 0,
+                "paid_building_usd": 0.0,
+                "paid_contents_usd": 0.0,
+                "total_paid_usd": 0.0,
+            },
+        )
+        bucket["claim_count"] += 1
+        if total_paid > 0.0:
+            bucket["paid_claim_count"] += 1
+        bucket["paid_building_usd"] += paid_bldg
+        bucket["paid_contents_usd"] += paid_cont
+        bucket["total_paid_usd"] += total_paid
+
+    if not agg:
+        return pd.DataFrame(columns=columns)
+
+    rows = [
+        {
+            "census_tract": tract,
+            "claim_count": int(vals["claim_count"]),
+            "paid_claim_count": int(vals["paid_claim_count"]),
+            "paid_building_usd": round(float(vals["paid_building_usd"]), 2),
+            "paid_contents_usd": round(float(vals["paid_contents_usd"]), 2),
+            "total_paid_usd": round(float(vals["total_paid_usd"]), 2),
+        }
+        for tract, vals in sorted(agg.items())
+    ]
+    return pd.DataFrame(rows, columns=columns)
+
+
+def join_nfip_claims_to_tracts(
+    claims_df: pd.DataFrame,
+    tracts_gdf: gpd.GeoDataFrame,
+    *,
+    tract_id_col: str = "GEOID",
+    target_crs: str = "EPSG:26910",
+) -> gpd.GeoDataFrame:
+    """Join tract-aggregated OpenFEMA NFIP claims onto census tract polygons."""
+    if tracts_gdf.crs is None:
+        raise ValueError("tracts_gdf is missing CRS.")
+    tracts = tracts_gdf.copy()
+    if tract_id_col not in tracts.columns:
+        for alt in ("GEOID", "geoid", "GEOID20", "census_tract", "TRACTCE"):
+            if alt in tracts.columns:
+                tract_id_col = alt
+                break
+        else:
+            raise ValueError(
+                f"Tract ID column {tract_id_col!r} not found in tracts_gdf."
+            )
+    tracts["census_tract"] = tracts[tract_id_col].map(_normalize_census_tract)
+    tracts = tracts[tracts["census_tract"].notna()].copy()
+
+    merged = tracts[["census_tract", "geometry"]].merge(
+        claims_df, on="census_tract", how="left"
+    )
+    for col in ("claim_count", "paid_claim_count"):
+        merged[col] = merged[col].fillna(0).astype(int)
+    for col in ("paid_building_usd", "paid_contents_usd", "total_paid_usd"):
+        merged[col] = merged[col].fillna(0.0).astype(float)
+
+    if CRS.from_user_input(merged.crs) != CRS.from_user_input(target_crs):
+        merged = merged.to_crs(target_crs)
+    return merged
 
 
 def _assert_crs(actual_crs: Any, expected_epsg: str, label: str) -> None:
@@ -1585,6 +1730,105 @@ def _fetch_ensemble_road_closures(
         print(f"[00_fetch_data] Saved {len(gdf)} Tier C road closures -> {out_path}")
 
 
+def _fetch_nfip_claims(
+    cfg: Mapping[str, Any],
+    buffered_wgs84_bbox: Sequence[float],
+    project_crs: str,
+    force: bool = False,
+) -> None:
+    """Fetch optional Tier E OpenFEMA NFIP claims aggregated by census tract."""
+    sources_cfg = cfg.get("validation", {}).get("sources") or {}
+    nfip_raw = sources_cfg.get("nfip_claims_file")
+    if not nfip_raw:
+        return
+    out_path = Path(nfip_raw)
+    if out_path.exists() and not force:
+        print(f"[00_fetch_data] Cached Tier E NFIP claims -> {out_path}")
+        return
+
+    county_fips = sources_cfg.get("nfip_county_fips")
+    start_year = sources_cfg.get("nfip_start_year")
+    api_url = str(sources_cfg.get("nfip_claims_url") or OPENFEMA_NFIP_CLAIMS_URL)
+    filter_expr = (
+        f"countyCode eq '{str(county_fips).strip().zfill(5)}'"
+        if county_fips
+        else "state eq 'CA'"
+    )
+    select_fields = (
+        "censusTract,countyCode,yearOfLoss,"
+        "amountPaidOnBuildingClaim,amountPaidOnContentsClaim,"
+        "amountPaidOnIncreasedCostOfComplianceClaim"
+    )
+
+    all_records: list[dict[str, Any]] = []
+    page_size = 10000
+    skip = 0
+    while True:
+        resp = requests.get(
+            api_url,
+            params={
+                "$filter": filter_expr,
+                "$select": select_fields,
+                "$top": page_size,
+                "$skip": skip,
+            },
+            timeout=DEFAULT_HTTP_TIMEOUT_S,
+        )
+        resp.raise_for_status()
+        batch = resp.json().get("FimaNfipClaims") or []
+        if not batch:
+            break
+        all_records.extend(batch)
+        if len(batch) < page_size:
+            break
+        skip += page_size
+
+    claims_df = parse_openfema_nfip_claims(
+        all_records,
+        county_fips=str(county_fips) if county_fips else None,
+        start_year=int(start_year) if start_year is not None else None,
+    )
+
+    tracts_raw = sources_cfg.get("census_tracts_file")
+    if tracts_raw and Path(tracts_raw).exists():
+        tracts_gdf = gpd.read_file(Path(tracts_raw))
+        if tracts_gdf.crs is None:
+            tracts_gdf = tracts_gdf.set_crs("EPSG:4326")
+    else:
+        xmin, ymin, xmax, ymax = [float(v) for v in buffered_wgs84_bbox]
+        tracts_resp = requests.get(
+            TIGERWEB_TRACTS_URL,
+            params={
+                "where": "1=1",
+                "geometry": f"{xmin},{ymin},{xmax},{ymax}",
+                "geometryType": "esriGeometryEnvelope",
+                "inSR": "4326",
+                "spatialRel": "esriSpatialRelIntersects",
+                "outFields": "GEOID,STATE,COUNTY,TRACT",
+                "outSR": "4326",
+                "f": "geojson",
+            },
+            timeout=DEFAULT_HTTP_TIMEOUT_S,
+        )
+        tracts_resp.raise_for_status()
+        tracts_gdf = gpd.GeoDataFrame.from_features(
+            tracts_resp.json().get("features") or [], crs="EPSG:4326"
+        )
+
+    joined_gdf = join_nfip_claims_to_tracts(
+        claims_df, tracts_gdf, target_crs=project_crs
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if out_path.suffix.lower() in {".parquet", ".geoparquet"}:
+        joined_gdf.to_parquet(out_path)
+    else:
+        joined_gdf.to_file(out_path, driver="GPKG")
+    print(
+        f"[00_fetch_data] Saved {len(joined_gdf)} Tier E NFIP tracts "
+        f"({int(joined_gdf['claim_count'].sum())} claims) -> {out_path}"
+    )
+
+
 def fetch_data(config_path: Path, force: bool = False) -> None:
     """Fetch all Phase 0 raw datasets and generate design-storm hyetographs."""
     with config_path.open("r", encoding="utf-8") as f:
@@ -1674,6 +1918,12 @@ def fetch_data(config_path: Path, force: bool = False) -> None:
     _fetch_ensemble_road_closures(
         cfg=cfg,
         buffered_wgs84_bbox=buffered_wgs84_bbox,
+        force=force,
+    )
+    _fetch_nfip_claims(
+        cfg=cfg,
+        buffered_wgs84_bbox=buffered_wgs84_bbox,
+        project_crs=project_crs,
         force=force,
     )
     print("[00_fetch_data] Phase 0 fetch complete.")

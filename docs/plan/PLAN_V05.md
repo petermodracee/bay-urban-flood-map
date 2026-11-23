@@ -39,8 +39,8 @@
 ---
 
 ## Phase 4: Tier E (OpenFEMA NFIP) & SF 5-Tier Baseline Report
-- [ ] Fetch **OpenFEMA NFIP Redacted Claims** (`FimaNfipClaims` API) aggregated by SF census tracts and compute Spearman $\rho$ against `sf_citywide_100yr_slr0ft` modeled building exposure (`Wing et al., 2020`), with offline `pytest` coverage.
-- [ ] Publish `docs/reports/sf_v05_multitier_validation.md` summarizing SF baseline scores across all 5 tiers, diagnostic failure modes (underpass carving, moderate-AR antecedent moisture, spatial drainage), and the frozen holdout-storm split for `v0.6`.
+- [x] Fetch **OpenFEMA NFIP Redacted Claims** (`FimaNfipClaims` API) aggregated by SF census tracts and compute Spearman $\rho$ against `sf_citywide_100yr_slr0ft` modeled building exposure (`Wing et al., 2020`), with offline `pytest` coverage.
+- [x] Publish `docs/reports/sf_v05_multitier_validation.md` summarizing SF baseline scores across all 5 tiers, diagnostic failure modes (underpass carving, moderate-AR antecedent moisture, spatial drainage), and the frozen holdout-storm split for `v0.6`.
 
 ---
 

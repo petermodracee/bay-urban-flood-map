@@ -2511,6 +2511,325 @@ def evaluate_groundsource_crosscheck(
     )
 
 
+def _safe_spearman(
+    x: np.ndarray, y: np.ndarray, *, min_n: int = 3
+) -> tuple[float | None, float | None]:
+    """Compute Spearman rank correlation safely, returning (None, None) on constant/short inputs."""
+    mask = np.isfinite(x) & np.isfinite(y)
+    xv = x[mask]
+    yv = y[mask]
+    if len(xv) < min_n:
+        return None, None
+    if np.all(xv == xv[0]) or np.all(yv == yv[0]):
+        return None, None
+    res = stats.spearmanr(xv, yv)
+    rho = float(res.statistic)
+    pval = float(res.pvalue)
+    if not (math.isfinite(rho) and math.isfinite(pval)):
+        return None, None
+    return round(rho, 6), round(pval, 6)
+
+
+def compute_tract_building_exposure(
+    tracts_gdf_utm: gpd.GeoDataFrame,
+    buildings_gdf_utm: gpd.GeoDataFrame | None,
+    modeled_depth_m: np.ndarray,
+    valid_land_mask: np.ndarray,
+    transform: Affine,
+    *,
+    depth_threshold_m: float = 0.05,
+    nodata_value: float = -9999.0,
+    tract_id_col: str = "census_tract",
+) -> pd.DataFrame:
+    """Aggregate modeled flood depth and building exposure by census tract (Tier E)."""
+    if tracts_gdf_utm.crs is None:
+        raise ValueError("tracts_gdf_utm must have a CRS.")
+    assert_crs_equals(tracts_gdf_utm.crs, "EPSG:26910", "tracts_gdf_utm")
+
+    if tract_id_col not in tracts_gdf_utm.columns:
+        for alt in ("census_tract", "GEOID", "geoid", "GEOID20"):
+            if alt in tracts_gdf_utm.columns:
+                tract_id_col = alt
+                break
+        else:
+            raise ValueError(
+                f"Tract ID column {tract_id_col!r} not found in tracts_gdf_utm."
+            )
+
+    tracts = tracts_gdf_utm.copy().reset_index(drop=True)
+    tracts["census_tract"] = tracts[tract_id_col].astype(str)
+    tracts["_tract_idx"] = np.arange(1, len(tracts) + 1, dtype=np.int32)
+
+    height, width = modeled_depth_m.shape
+    cell_area_m2 = abs(float(transform.a) * float(transform.e))
+    finite_depth = np.isfinite(modeled_depth_m) & (modeled_depth_m != nodata_value)
+    flooded_land = (
+        valid_land_mask & finite_depth & (modeled_depth_m >= depth_threshold_m)
+    )
+
+    if len(tracts) > 0:
+        shapes = [
+            (geom, int(idx))
+            for geom, idx in zip(tracts.geometry, tracts["_tract_idx"], strict=True)
+            if geom is not None and not geom.is_empty
+        ]
+        tract_grid = (
+            rasterize(
+                shapes,
+                out_shape=(height, width),
+                transform=transform,
+                fill=0,
+                dtype="int32",
+            )
+            if shapes
+            else np.zeros((height, width), dtype=np.int32)
+        )
+        valid_counts = np.bincount(
+            tract_grid[valid_land_mask].ravel(), minlength=len(tracts) + 1
+        )
+        flooded_counts = np.bincount(
+            tract_grid[flooded_land].ravel(), minlength=len(tracts) + 1
+        )
+        tracts["valid_land_area_m2"] = (
+            valid_counts[1 : len(tracts) + 1].astype(float) * cell_area_m2
+        )
+        tracts["flooded_land_area_m2"] = (
+            flooded_counts[1 : len(tracts) + 1].astype(float) * cell_area_m2
+        )
+    else:
+        tracts["valid_land_area_m2"] = 0.0
+        tracts["flooded_land_area_m2"] = 0.0
+
+    tracts["total_buildings"] = 0
+    tracts["exposed_buildings"] = 0
+    tracts["exposed_building_fraction"] = 0.0
+    tracts["exposed_building_area_m2"] = 0.0
+    tracts["mean_building_depth_m"] = 0.0
+
+    if buildings_gdf_utm is not None and len(buildings_gdf_utm) > 0 and len(tracts) > 0:
+        assert_crs_equals(buildings_gdf_utm.crs, "EPSG:26910", "buildings_gdf_utm")
+        bldgs = buildings_gdf_utm[
+            buildings_gdf_utm.geometry.notna() & ~buildings_gdf_utm.geometry.is_empty
+        ].copy()
+        if len(bldgs) > 0:
+            rep_pts = bldgs.geometry.representative_point()
+            coords_xy = list(
+                zip(
+                    rep_pts.x.to_numpy(dtype=float),
+                    rep_pts.y.to_numpy(dtype=float),
+                    strict=True,
+                )
+            )
+            sampled_depths = sample_raster_at_points(
+                modeled_depth_m,
+                coords_xy,
+                transform,
+                nodata_value=nodata_value,
+            )
+            # Mask out points outside valid_land_mask
+            rows_idx, cols_idx = rowcol(
+                transform,
+                [pt[0] for pt in coords_xy],
+                [pt[1] for pt in coords_xy],
+            )
+            rows_arr = np.asarray(rows_idx, dtype=np.int64)
+            cols_arr = np.asarray(cols_idx, dtype=np.int64)
+            in_bounds = (
+                (rows_arr >= 0)
+                & (rows_arr < height)
+                & (cols_arr >= 0)
+                & (cols_arr < width)
+            )
+            valid_pt = np.zeros(len(bldgs), dtype=bool)
+            valid_pt[in_bounds] = valid_land_mask[
+                rows_arr[in_bounds], cols_arr[in_bounds]
+            ]
+            depths_clean = np.where(
+                valid_pt & np.isfinite(sampled_depths), sampled_depths, 0.0
+            )
+            bldgs["_depth_m"] = depths_clean
+            bldgs["_exposed"] = depths_clean >= depth_threshold_m
+            bldgs["_area_m2"] = bldgs.geometry.area.astype(float)
+            bldgs["_exposed_area_m2"] = np.where(
+                bldgs["_exposed"], bldgs["_area_m2"], 0.0
+            )
+
+            pts_gdf = gpd.GeoDataFrame(
+                bldgs[["_depth_m", "_exposed", "_exposed_area_m2"]],
+                geometry=rep_pts,
+                crs=bldgs.crs,
+            )
+            joined = gpd.sjoin(
+                pts_gdf,
+                tracts[["_tract_idx", "geometry"]],
+                how="inner",
+                predicate="within",
+            )
+            if len(joined) > 0:
+                grouped = joined.groupby("_tract_idx").agg(
+                    total_buildings=("_exposed", "count"),
+                    exposed_buildings=("_exposed", "sum"),
+                    exposed_building_area_m2=("_exposed_area_m2", "sum"),
+                )
+                exposed_only = (
+                    joined[joined["_exposed"]].groupby("_tract_idx")["_depth_m"].mean()
+                )
+                for t_idx, row in grouped.iterrows():
+                    mask_t = tracts["_tract_idx"] == t_idx
+                    tot = int(row["total_buildings"])
+                    exp = int(row["exposed_buildings"])
+                    tracts.loc[mask_t, "total_buildings"] = tot
+                    tracts.loc[mask_t, "exposed_buildings"] = exp
+                    tracts.loc[mask_t, "exposed_building_fraction"] = (
+                        float(exp) / float(tot) if tot > 0 else 0.0
+                    )
+                    tracts.loc[mask_t, "exposed_building_area_m2"] = float(
+                        row["exposed_building_area_m2"]
+                    )
+                    if t_idx in exposed_only.index:
+                        tracts.loc[mask_t, "mean_building_depth_m"] = float(
+                            exposed_only.loc[t_idx]
+                        )
+
+    keep_cols = [c for c in tracts.columns if c not in {"geometry", "_tract_idx"}]
+    return pd.DataFrame(tracts[keep_cols]).reset_index(drop=True)
+
+
+def compute_nfip_spearman_correlation(
+    tract_df: pd.DataFrame,
+    *,
+    claim_col: str = "claim_count",
+    exposure_col: str = "exposed_buildings",
+    min_tracts: int = 3,
+) -> dict[str, Any]:
+    """Compute tract-level Spearman rank correlation between NFIP claims and modeled exposure."""
+    if exposure_col not in tract_df.columns or (
+        tract_df[exposure_col].sum() == 0
+        and "flooded_land_area_m2" in tract_df.columns
+        and tract_df.get("total_buildings", pd.Series([0])).sum() == 0
+    ):
+        exposure_col = "flooded_land_area_m2"
+
+    rho, p_val = (
+        _safe_spearman(
+            tract_df[claim_col].to_numpy(dtype=float),
+            tract_df[exposure_col].to_numpy(dtype=float),
+            min_n=min_tracts,
+        )
+        if claim_col in tract_df.columns and exposure_col in tract_df.columns
+        else (None, None)
+    )
+
+    additional: dict[str, dict[str, float | None]] = {}
+    candidate_pairs = (
+        ("total_paid_usd", "exposed_buildings"),
+        ("claim_count", "exposed_building_area_m2"),
+        ("claim_count", "exposed_building_fraction"),
+        ("claim_count", "flooded_land_area_m2"),
+        ("total_paid_usd", "flooded_land_area_m2"),
+    )
+    for c_col, e_col in candidate_pairs:
+        if c_col in tract_df.columns and e_col in tract_df.columns:
+            r_c, p_c = _safe_spearman(
+                tract_df[c_col].to_numpy(dtype=float),
+                tract_df[e_col].to_numpy(dtype=float),
+                min_n=min_tracts,
+            )
+            additional[f"{c_col}_vs_{e_col}"] = {
+                "spearman_rho": r_c,
+                "p_value": p_c,
+            }
+
+    total_claims = (
+        int(tract_df["claim_count"].sum()) if "claim_count" in tract_df.columns else 0
+    )
+    n_tracts_with_claims = (
+        int((tract_df["claim_count"] > 0).sum())
+        if "claim_count" in tract_df.columns
+        else 0
+    )
+    total_paid = (
+        round(float(tract_df["total_paid_usd"].sum()), 2)
+        if "total_paid_usd" in tract_df.columns
+        else 0.0
+    )
+
+    return {
+        "n_tracts": len(tract_df),
+        "n_tracts_with_claims": n_tracts_with_claims,
+        "total_claims": total_claims,
+        "total_paid_usd": total_paid,
+        "primary_claim_metric": claim_col,
+        "primary_exposure_metric": exposure_col,
+        "spearman_rho": rho,
+        "p_value": p_val,
+        "additional_correlations": additional,
+    }
+
+
+def evaluate_nfip_crosscheck(
+    nfip_claims_file: Path,
+    modeled_depth_m: np.ndarray,
+    valid_land_mask: np.ndarray,
+    transform: Affine,
+    *,
+    buildings_file: Path | None = None,
+    tracts_file: Path | None = None,
+    project_crs: str = "EPSG:26910",
+    depth_threshold_m: float = 0.05,
+    nodata_value: float = -9999.0,
+) -> dict[str, Any] | None:
+    """Load OpenFEMA NFIP tract claims and score Spearman rho against modeled exposure."""
+    if not nfip_claims_file.exists():
+        return None
+    suffix = nfip_claims_file.suffix.lower()
+    if suffix == ".csv":
+        if tracts_file is None or not tracts_file.exists():
+            raise ValueError("tracts_file is required when nfip_claims_file is a CSV.")
+        claims_df = pd.read_csv(nfip_claims_file, dtype={"census_tract": str})
+        tracts_raw = gpd.read_file(tracts_file)
+        if tracts_raw.crs is None:
+            tracts_raw = tracts_raw.set_crs("EPSG:4326")
+        tracts_raw["census_tract"] = tracts_raw[
+            "census_tract" if "census_tract" in tracts_raw.columns else "GEOID"
+        ].astype(str)
+        tracts_gdf = tracts_raw.merge(claims_df, on="census_tract", how="left")
+    elif suffix in {".parquet", ".geoparquet"}:
+        tracts_gdf = gpd.read_parquet(nfip_claims_file)
+    else:
+        tracts_gdf = gpd.read_file(nfip_claims_file)
+
+    if tracts_gdf.crs is None:
+        tracts_gdf = tracts_gdf.set_crs("EPSG:4326")
+    tracts_utm = (
+        tracts_gdf.to_crs(project_crs)
+        if CRS.from_user_input(tracts_gdf.crs) != CRS.from_user_input(project_crs)
+        else tracts_gdf
+    )
+
+    buildings_utm: gpd.GeoDataFrame | None = None
+    if buildings_file is not None and buildings_file.exists():
+        bldgs_raw = gpd.read_file(buildings_file)
+        if bldgs_raw.crs is None:
+            raise ValueError(f"{buildings_file} is missing CRS.")
+        buildings_utm = (
+            bldgs_raw.to_crs(project_crs)
+            if CRS.from_user_input(bldgs_raw.crs) != CRS.from_user_input(project_crs)
+            else bldgs_raw
+        )
+
+    tract_df = compute_tract_building_exposure(
+        tracts_gdf_utm=tracts_utm,
+        buildings_gdf_utm=buildings_utm,
+        modeled_depth_m=modeled_depth_m,
+        valid_land_mask=valid_land_mask,
+        transform=transform,
+        depth_threshold_m=depth_threshold_m,
+        nodata_value=nodata_value,
+    )
+    return compute_nfip_spearman_correlation(tract_df)
+
+
 def validate_region(
     config_path: Path,
     scenario_id: str | None = None,
@@ -2936,9 +3255,25 @@ def validate_region(
                     nodata_value=dem_nodata,
                     event_windows=ensemble_cfg,
                 )
+            nfip_match: dict[str, Any] | None = None
+            nfip_file_raw = sources_cfg.get("nfip_claims_file")
+            if nfip_file_raw:
+                tracts_raw = sources_cfg.get("census_tracts_file")
+                buildings_raw = domain.get("buildings_source")
+                nfip_match = evaluate_nfip_crosscheck(
+                    nfip_claims_file=Path(nfip_file_raw),
+                    modeled_depth_m=best_depth_m,
+                    valid_land_mask=land_valid_mask,
+                    transform=dst_transform,
+                    buildings_file=Path(buildings_raw) if buildings_raw else None,
+                    tracts_file=Path(tracts_raw) if tracts_raw else None,
+                    project_crs=project_crs,
+                    depth_threshold_m=0.05,
+                    nodata_value=dem_nodata,
+                )
             regional_crosschecks = {
                 "groundsource_subbasin_match": groundsource_match,
-                "nfip_tract_spearman_rho": None,
+                "nfip_tract_spearman_rho": nfip_match,
             }
             ensemble_payload = aggregate_ensemble_311_metrics(
                 event_results,
