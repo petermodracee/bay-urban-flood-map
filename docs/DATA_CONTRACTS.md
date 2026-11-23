@@ -72,3 +72,59 @@ The web frontend reads this file to populate dropdowns and resolve COG URLs with
 
 - **v0.2+ Extensions:** Historical hindcasts use string storm IDs (e.g., `"storm": "ar_20221231"`), derived SLR delta rasters use `"metric": "delta"`, and entries may include optional `"opc_2024_pathway"` and `"opc_2024_horizon"` metadata strings for UI display.
 - **v0.4+ Extensions:** Top-level manifest payload may include `"drainage_tier"` (`"tier0"`, `"tier1a"`, `"tier1b"`, or `"tier2"`) indicating the active storm-drain abstraction tier.
+
+## 6. Multi-Tier Ensemble Validation Contract (`validation_ensemble_metrics.json`)
+
+Output by `03_validate_sf.py` (`validation.ensemble_metrics_file`) for multi-storm hindcast ensembles and multi-tier validation (`docs/VALIDATION_SPEC.md` §4.2). All v0.4 keys (`n_events`, `total_311_points`, `events[].{id, label, scenario, valid_land_points, by_buffer}`, `ensemble_mean.by_buffer`) are preserved unchanged, with additive v0.5+ metadata and tier fields:
+
+```json
+{
+  "region": "sf_citywide",
+  "drainage_tier": "tier0",
+  "rain_source": "mrms",
+  "n_events": 4,
+  "total_311_points": 1535,
+  "design_benchmark": {
+    "source": "sfpuc_100yr",
+    "depth_threshold_m": 0.1524,
+    "hit_rate": 0.3887,
+    "false_alarm_ratio": 0.7086,
+    "csi": 0.1998
+  },
+  "events": [
+    {
+      "id": "ar_20221231",
+      "label": "Dec 31, 2022 Atmospheric River",
+      "scenario": "sf_citywide_ar_20221231",
+      "valid_land_points": 424,
+      "by_buffer": [],
+      "tiers_evaluated": ["311"],
+      "road_closures_validation": null,
+      "gauge_hwm_validation": null
+    }
+  ],
+  "ensemble_mean": {
+    "by_buffer": [
+      {
+        "radius_m": 25.0,
+        "ar_roc_auc": 0.5888,
+        "thresholds": {
+          "0.05m": {
+            "capture_rate": 0.3695,
+            "control_rate": 0.2377,
+            "lift": 1.251
+          }
+        }
+      }
+    ]
+  },
+  "regional_crosschecks": {
+    "groundsource_subbasin_match": null,
+    "nfip_tract_spearman_rho": null
+  }
+}
+```
+
+- **Preserved v0.4 keys:** `n_events`, `total_311_points`, `events[].{id, label, scenario, valid_land_points, by_buffer}`, and `ensemble_mean.by_buffer`.
+- **Additive v0.5+ top-level keys:** `region`, `drainage_tier`, `rain_source`, `design_benchmark` (`null` when no Tier B benchmark is configured), and `regional_crosschecks`.
+- **Additive v0.5+ per-event keys:** `tiers_evaluated` (e.g., `["311"]`), `road_closures_validation` (`null` until Tier C is evaluated), and `gauge_hwm_validation` (`null` until Tier A is evaluated).

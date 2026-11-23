@@ -18,9 +18,9 @@
 ---
 
 ## Phase 1: Contract Update & Region-Agnostic Validator Refactor
-- [ ] Confirm and update [`docs/DATA_CONTRACTS.md`](../DATA_CONTRACTS.md) with the additive multi-tier `validation_ensemble_metrics.json` contract (preserving all v0.4 keys: `n_events`, `total_311_points`, `events[]`, `ensemble_mean.by_buffer`).
-- [ ] Refactor `pipeline/03_validate_sf.py` scoring primitives into pure, region-agnostic functions separated from file I/O with fast, offline `pytest` fixtures.
-- [ ] Verify exact zero-regression on `sf_citywide` v0.4 metrics (`SFPUC CSI = 0.1998`; 4-AR MRMS `25 m` `36.95% / 1.251x / 0.5888`).
+- [x] Confirm and update [`docs/DATA_CONTRACTS.md`](../DATA_CONTRACTS.md) with the additive multi-tier `validation_ensemble_metrics.json` contract (preserving all v0.4 keys: `n_events`, `total_311_points`, `events[]`, `ensemble_mean.by_buffer`).
+- [x] Refactor `pipeline/03_validate_sf.py` scoring primitives into pure, region-agnostic functions separated from file I/O with fast, offline `pytest` fixtures.
+- [x] Verify exact zero-regression on `sf_citywide` v0.4 metrics (`SFPUC CSI = 0.1998`; 4-AR MRMS `25 m` `36.95% / 1.251x / 0.5888`).
 
 ---
 

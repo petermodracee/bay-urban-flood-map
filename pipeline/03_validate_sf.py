@@ -317,20 +317,56 @@ def compute_roc_auc(
     return round(float(auc), 6)
 
 
-def compute_neighborhood_sfpuc_metrics(
+def compute_land_valid_mask(
+    dem_m: np.ndarray,
+    dem_nodata: float = -9999.0,
+    min_land_elevation_m: float = 0.5,
+    nlcd_landcover: np.ndarray | None = None,
+    exclude_open_water: bool = True,
+) -> np.ndarray:
+    """Build valid urban land mask excluding DEM NoData, sub-tidal cells, and NLCD open water."""
+    valid_dem = (dem_m != dem_nodata) & np.isfinite(dem_m)
+    land_valid_mask = valid_dem & (dem_m >= float(min_land_elevation_m))
+    if exclude_open_water and nlcd_landcover is not None:
+        land_valid_mask = land_valid_mask & (nlcd_landcover != 11)
+    return land_valid_mask
+
+
+def rasterize_benchmark_polygons(
+    gdf_utm: gpd.GeoDataFrame,
+    out_shape: tuple[int, int],
+    transform: Affine,
+) -> np.ndarray:
+    """Rasterize polygon benchmark geometries in target UTM CRS to a boolean mask."""
+    shapes = [
+        (geom, 1) for geom in gdf_utm.geometry if geom is not None and not geom.is_empty
+    ]
+    if not shapes:
+        return np.zeros(out_shape, dtype=bool)
+    return rasterize(
+        shapes,
+        out_shape=out_shape,
+        transform=transform,
+        fill=0,
+        dtype=np.uint8,
+    ).astype(bool)
+
+
+def compute_corridor_benchmark_metrics(
     depth_m: np.ndarray,
     obs_mask: np.ndarray,
     valid_land_mask: np.ndarray,
     transform: Affine,
     depth_threshold_m: float = 0.1524,
-    neighborhoods_utm: Mapping[
+    corridors_utm: Mapping[
         str, tuple[float, float, float, float]
     ] = SF_NEIGHBORHOOD_BOXES_UTM,
+    label_key: str = "corridor",
 ) -> list[dict[str, Any]]:
-    """Compute SFPUC 100-year validation metrics across key San Francisco corridor bboxes."""
+    """Compute Tier B polygon-to-raster validation metrics across named UTM corridor bboxes."""
     height, width = depth_m.shape
     rows: list[dict[str, Any]] = []
-    for name, (xmin, ymin, xmax, ymax) in neighborhoods_utm.items():
+    for name, (xmin, ymin, xmax, ymax) in corridors_utm.items():
         r_top, c_left = rowcol(transform, xmin, ymax)
         r_bot, c_right = rowcol(transform, xmax, ymin)
         r0 = max(0, min(r_top, r_bot))
@@ -351,7 +387,7 @@ def compute_neighborhood_sfpuc_metrics(
         )
         rows.append(
             {
-                "neighborhood": name,
+                label_key: name,
                 "bbox_epsg26910": [xmin, ymin, xmax, ymax],
                 "land_cells": int(np.sum(sub_valid)),
                 "obs_cells": int(np.sum(sub_obs & sub_valid)),
@@ -360,6 +396,28 @@ def compute_neighborhood_sfpuc_metrics(
             }
         )
     return rows
+
+
+def compute_neighborhood_sfpuc_metrics(
+    depth_m: np.ndarray,
+    obs_mask: np.ndarray,
+    valid_land_mask: np.ndarray,
+    transform: Affine,
+    depth_threshold_m: float = 0.1524,
+    neighborhoods_utm: Mapping[
+        str, tuple[float, float, float, float]
+    ] = SF_NEIGHBORHOOD_BOXES_UTM,
+) -> list[dict[str, Any]]:
+    """Compute SFPUC 100-year validation metrics across key San Francisco corridor bboxes."""
+    return compute_corridor_benchmark_metrics(
+        depth_m=depth_m,
+        obs_mask=obs_mask,
+        valid_land_mask=valid_land_mask,
+        transform=transform,
+        depth_threshold_m=depth_threshold_m,
+        corridors_utm=neighborhoods_utm,
+        label_key="neighborhood",
+    )
 
 
 def _summarize_point_group(
@@ -392,19 +450,12 @@ def _summarize_point_group(
     return res
 
 
-def compute_311_validation_metrics(
+def extract_valid_land_points(
     points_gdf_utm: gpd.GeoDataFrame,
-    ar_depth_m: np.ndarray,
-    sfpuc_mask: np.ndarray,
     valid_land_mask: np.ndarray,
     transform: Affine,
-    nodata_value: float = -9999.0,
-    radii_m: Sequence[float] = (0.0, 25.0, 50.0),
-    thresholds_m: Sequence[float] = (0.05, 0.1524),
-    n_controls: int = 2000,
-    seed: int = 42,
-) -> dict[str, Any]:
-    """Compute 3-way validation metrics comparing SF 311 calls against AR hindcast & SFPUC."""
+) -> tuple[gpd.GeoDataFrame, np.ndarray, np.ndarray]:
+    """Filter a UTM GeoDataFrame to points inside valid_land_mask and return (gdf, xs_m, ys_m)."""
     height, width = valid_land_mask.shape
     keep_idx: list[int] = []
     xs_list: list[float] = []
@@ -421,16 +472,23 @@ def compute_311_validation_metrics(
             ys_list.append(float(pt.y))
 
     filtered = points_gdf_utm.iloc[keep_idx].reset_index(drop=True)
-    xs_311 = np.asarray(xs_list, dtype=np.float64)
-    ys_311 = np.asarray(ys_list, dtype=np.float64)
-    n_valid_pts = xs_311.size
+    return (
+        filtered,
+        np.asarray(xs_list, dtype=np.float64),
+        np.asarray(ys_list, dtype=np.float64),
+    )
 
+
+def sample_random_land_controls(
+    valid_land_mask: np.ndarray,
+    transform: Affine,
+    n_controls: int = 2000,
+    seed: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sample deterministic random UTM control coordinates from valid_land_mask."""
     land_rows, land_cols = np.where(valid_land_mask)
-    if land_rows.size == 0 or n_valid_pts == 0:
-        raise ValueError(
-            "Cannot compute 311 validation without valid land cells and points."
-        )
-
+    if land_rows.size == 0:
+        raise ValueError("Cannot sample random land controls from an empty land mask.")
     rng = np.random.default_rng(seed)
     n_ctrl_eff = min(int(n_controls), int(land_rows.size))
     ctrl_picks = rng.choice(land_rows.size, size=n_ctrl_eff, replace=False)
@@ -440,82 +498,132 @@ def compute_311_validation_metrics(
     ys_ctrl = (
         transform.f + (land_rows[ctrl_picks].astype(np.float64) + 0.5) * transform.e
     )
+    return xs_ctrl, ys_ctrl
+
+
+def compute_point_capture_metrics(
+    points_gdf_utm: gpd.GeoDataFrame,
+    ar_depth_m: np.ndarray,
+    valid_land_mask: np.ndarray,
+    transform: Affine,
+    benchmark_mask: np.ndarray | None = None,
+    nodata_value: float = -9999.0,
+    radii_m: Sequence[float] = (0.0, 25.0, 50.0),
+    thresholds_m: Sequence[float] = (0.05, 0.1524),
+    n_controls: int = 2000,
+    seed: int = 42,
+    subtype_col: str = "service_subtype",
+    group_col: str = "neighborhood",
+    address_col: str = "address",
+) -> dict[str, Any]:
+    """Compute region-agnostic point-vs-raster capture, lift, and ROC-AUC metrics."""
+    filtered, xs_pts, ys_pts = extract_valid_land_points(
+        points_gdf_utm, valid_land_mask, transform
+    )
+    n_valid_pts = xs_pts.size
+    if n_valid_pts == 0:
+        raise ValueError(
+            "Cannot compute point validation without valid land cells and points."
+        )
+
+    xs_ctrl, ys_ctrl = sample_random_land_controls(
+        valid_land_mask=valid_land_mask,
+        transform=transform,
+        n_controls=n_controls,
+        seed=seed,
+    )
+    n_ctrl_eff = xs_ctrl.size
 
     sorted_radii = tuple(sorted(float(r) for r in radii_m))
-    ar_311 = sample_max_depth_within_buffers(
-        ar_depth_m, transform, nodata_value, xs_311, ys_311, sorted_radii
+    ar_pts = sample_max_depth_within_buffers(
+        ar_depth_m, transform, nodata_value, xs_pts, ys_pts, sorted_radii
     )
     ar_ctrl = sample_max_depth_within_buffers(
         ar_depth_m, transform, nodata_value, xs_ctrl, ys_ctrl, sorted_radii
     )
-    sfpuc_311 = sample_mask_within_buffers(
-        sfpuc_mask, transform, xs_311, ys_311, sorted_radii
+    bench_pts = (
+        sample_mask_within_buffers(
+            benchmark_mask, transform, xs_pts, ys_pts, sorted_radii
+        )
+        if benchmark_mask is not None
+        else None
     )
-    sfpuc_ctrl = sample_mask_within_buffers(
-        sfpuc_mask, transform, xs_ctrl, ys_ctrl, sorted_radii
+    bench_ctrl = (
+        sample_mask_within_buffers(
+            benchmark_mask, transform, xs_ctrl, ys_ctrl, sorted_radii
+        )
+        if benchmark_mask is not None
+        else None
     )
 
     by_buffer: list[dict[str, Any]] = []
     for r_m in sorted_radii:
         entry: dict[str, Any] = {
             "radius_m": r_m,
-            "ar_roc_auc": compute_roc_auc(ar_311[r_m], ar_ctrl[r_m]),
+            "ar_roc_auc": compute_roc_auc(ar_pts[r_m], ar_ctrl[r_m]),
             "thresholds": {},
         }
         for thr in thresholds_m:
             thr_key = f"{thr:g}m"
-            hits_311 = ar_311[r_m] >= float(thr)
+            hits_pts = ar_pts[r_m] >= float(thr)
             hits_ctrl = ar_ctrl[r_m] >= float(thr)
-            rate_311 = float(np.mean(hits_311))
+            rate_pts = float(np.mean(hits_pts))
             rate_ctrl = float(np.mean(hits_ctrl))
-            lift = round(rate_311 / rate_ctrl, 3) if rate_ctrl > 0.0 else None
+            lift = round(rate_pts / rate_ctrl, 3) if rate_ctrl > 0.0 else None
             entry["thresholds"][thr_key] = {
-                "hit_count": int(np.sum(hits_311)),
-                "capture_rate": round(rate_311, 4),
+                "hit_count": int(np.sum(hits_pts)),
+                "capture_rate": round(rate_pts, 4),
                 "control_rate": round(rate_ctrl, 4),
                 "lift": lift,
             }
 
-        s_hits_311 = sfpuc_311[r_m]
-        s_hits_ctrl = sfpuc_ctrl[r_m]
-        s_rate_311 = float(np.mean(s_hits_311))
-        s_rate_ctrl = float(np.mean(s_hits_ctrl))
-        entry["sfpuc"] = {
-            "hit_count": int(np.sum(s_hits_311)),
-            "capture_rate": round(s_rate_311, 4),
-            "control_rate": round(s_rate_ctrl, 4),
-            "lift": round(s_rate_311 / s_rate_ctrl, 3) if s_rate_ctrl > 0.0 else None,
-        }
-        ar05_hits = ar_311[r_m] >= 0.05
-        entry["combined_ar05_or_sfpuc_rate"] = round(
-            float(np.mean(ar05_hits | s_hits_311)), 4
-        )
-        entry["ar05_only_not_sfpuc_count"] = int(np.sum(ar05_hits & (~s_hits_311)))
-        entry["sfpuc_only_not_ar05_count"] = int(np.sum(s_hits_311 & (~ar05_hits)))
+        if bench_pts is not None and bench_ctrl is not None:
+            s_hits_pts = bench_pts[r_m]
+            s_hits_ctrl = bench_ctrl[r_m]
+            s_rate_pts = float(np.mean(s_hits_pts))
+            s_rate_ctrl = float(np.mean(s_hits_ctrl))
+            entry["sfpuc"] = {
+                "hit_count": int(np.sum(s_hits_pts)),
+                "capture_rate": round(s_rate_pts, 4),
+                "control_rate": round(s_rate_ctrl, 4),
+                "lift": (
+                    round(s_rate_pts / s_rate_ctrl, 3) if s_rate_ctrl > 0.0 else None
+                ),
+            }
+            ar05_hits = ar_pts[r_m] >= 0.05
+            entry["combined_ar05_or_sfpuc_rate"] = round(
+                float(np.mean(ar05_hits | s_hits_pts)), 4
+            )
+            entry["ar05_only_not_sfpuc_count"] = int(np.sum(ar05_hits & (~s_hits_pts)))
+            entry["sfpuc_only_not_ar05_count"] = int(np.sum(s_hits_pts & (~ar05_hits)))
         by_buffer.append(entry)
 
     eval_r = 50.0 if 50.0 in sorted_radii else max(sorted_radii)
     r25 = 25.0 if 25.0 in sorted_radii else eval_r
-    ar_eval = ar_311[eval_r]
-    ar_25 = ar_311[r25]
-    s_eval = sfpuc_311[eval_r]
+    ar_eval = ar_pts[eval_r]
+    ar_25 = ar_pts[r25]
+    s_eval = (
+        bench_pts[eval_r]
+        if bench_pts is not None
+        else np.zeros(n_valid_pts, dtype=bool)
+    )
 
     subtype_rows: list[dict[str, Any]] = []
-    if "service_subtype" in filtered.columns:
-        subtypes = filtered["service_subtype"].fillna("unknown").astype(str)
+    if subtype_col in filtered.columns:
+        subtypes = filtered[subtype_col].fillna("unknown").astype(str)
         for st_val, idxs in subtypes.groupby(subtypes).groups.items():
             idx_arr = np.asarray(list(idxs), dtype=int)
-            row_dict = {"service_subtype": st_val}
+            row_dict: dict[str, Any] = {subtype_col: st_val}
             row_dict.update(_summarize_point_group(idx_arr, ar_eval, s_eval, ar_25))
             subtype_rows.append(row_dict)
         subtype_rows.sort(key=lambda r: r["count"], reverse=True)
 
     neighborhood_rows: list[dict[str, Any]] = []
-    if "neighborhood" in filtered.columns:
-        nbhds = filtered["neighborhood"].fillna("Unknown").astype(str)
+    if group_col in filtered.columns:
+        nbhds = filtered[group_col].fillna("Unknown").astype(str)
         for nb_val, idxs in nbhds.groupby(nbhds).groups.items():
             idx_arr = np.asarray(list(idxs), dtype=int)
-            row_dict = {"neighborhood": nb_val}
+            row_dict = {group_col: nb_val}
             row_dict.update(_summarize_point_group(idx_arr, ar_eval, s_eval, ar_25))
             neighborhood_rows.append(row_dict)
         neighborhood_rows.sort(key=lambda r: r["count"], reverse=True)
@@ -526,18 +634,14 @@ def compute_311_validation_metrics(
     if np.any(missed_mask):
         missed_df = filtered.loc[missed_mask].copy()
         nb_series = (
-            missed_df["neighborhood"].fillna("Unknown").astype(str)
-            if "neighborhood" in missed_df.columns
+            missed_df[group_col].fillna("Unknown").astype(str)
+            if group_col in missed_df.columns
             else np.repeat("Unknown", len(missed_df))
         )
         missed_df["_nb"] = nb_series
         total_by_nb = (
-            filtered["neighborhood"]
-            .fillna("Unknown")
-            .astype(str)
-            .value_counts()
-            .to_dict()
-            if "neighborhood" in filtered.columns
+            filtered[group_col].fillna("Unknown").astype(str).value_counts().to_dict()
+            if group_col in filtered.columns
             else {}
         )
         missed_sfpuc = s_eval[missed_mask]
@@ -546,15 +650,15 @@ def compute_311_validation_metrics(
             addrs = (
                 [
                     str(a)
-                    for a in grp["address"].dropna().astype(str).unique()[:3]
+                    for a in grp[address_col].dropna().astype(str).unique()[:3]
                     if str(a).strip()
                 ]
-                if "address" in grp.columns
+                if address_col in grp.columns
                 else []
             )
             missed_clusters.append(
                 {
-                    "neighborhood": str(nb_name),
+                    group_col: str(nb_name),
                     "missed_count": len(grp),
                     "total_count": int(total_by_nb.get(str(nb_name), len(grp))),
                     "sfpuc_captured_count": int(grp["_sfpuc_hit"].sum()),
@@ -577,10 +681,58 @@ def compute_311_validation_metrics(
     }
 
 
+def compute_311_validation_metrics(
+    points_gdf_utm: gpd.GeoDataFrame,
+    ar_depth_m: np.ndarray,
+    sfpuc_mask: np.ndarray,
+    valid_land_mask: np.ndarray,
+    transform: Affine,
+    nodata_value: float = -9999.0,
+    radii_m: Sequence[float] = (0.0, 25.0, 50.0),
+    thresholds_m: Sequence[float] = (0.05, 0.1524),
+    n_controls: int = 2000,
+    seed: int = 42,
+) -> dict[str, Any]:
+    """Compute 3-way validation metrics comparing SF 311 calls against AR hindcast & SFPUC."""
+    return compute_point_capture_metrics(
+        points_gdf_utm=points_gdf_utm,
+        ar_depth_m=ar_depth_m,
+        valid_land_mask=valid_land_mask,
+        transform=transform,
+        benchmark_mask=sfpuc_mask,
+        nodata_value=nodata_value,
+        radii_m=radii_m,
+        thresholds_m=thresholds_m,
+        n_controls=n_controls,
+        seed=seed,
+    )
+
+
+def build_design_benchmark_summary(
+    source: str,
+    depth_threshold_m: float,
+    metrics: Mapping[str, float | int],
+) -> dict[str, Any]:
+    """Format Tier B design-storm benchmark metrics for validation_ensemble_metrics.json."""
+    return {
+        "source": str(source),
+        "depth_threshold_m": float(depth_threshold_m),
+        "hit_rate": float(metrics["hit_rate"]),
+        "false_alarm_ratio": float(metrics["false_alarm_ratio"]),
+        "csi": float(metrics["csi"]),
+    }
+
+
 def aggregate_ensemble_311_metrics(
     event_results: Sequence[Mapping[str, Any]],
+    *,
+    region: str | None = None,
+    drainage_tier: str | None = None,
+    rain_source: str | None = None,
+    design_benchmark: Mapping[str, Any] | None = None,
+    regional_crosschecks: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Aggregate per-storm 311 validation metrics across a multi-storm AR ensemble."""
+    """Aggregate per-storm 311 and multi-tier validation metrics across an AR ensemble."""
     if not event_results:
         raise ValueError("event_results must not be empty.")
 
@@ -634,9 +786,24 @@ def aggregate_ensemble_311_metrics(
             }
         )
 
+    crosschecks_payload = (
+        dict(regional_crosschecks)
+        if regional_crosschecks is not None
+        else {
+            "groundsource_subbasin_match": None,
+            "nfip_tract_spearman_rho": None,
+        }
+    )
+
     return {
+        "region": region,
+        "drainage_tier": drainage_tier,
+        "rain_source": rain_source,
         "n_events": len(event_results),
         "total_311_points": sum(int(ev["valid_land_points"]) for ev in event_results),
+        "design_benchmark": dict(design_benchmark)
+        if design_benchmark is not None
+        else None,
         "events": [
             {
                 "id": ev["id"],
@@ -644,10 +811,14 @@ def aggregate_ensemble_311_metrics(
                 "scenario": ev["scenario"],
                 "valid_land_points": int(ev["valid_land_points"]),
                 "by_buffer": list(ev["by_buffer"]),
+                "tiers_evaluated": list(ev.get("tiers_evaluated", ["311"])),
+                "road_closures_validation": ev.get("road_closures_validation"),
+                "gauge_hwm_validation": ev.get("gauge_hwm_validation"),
             }
             for ev in event_results
         ],
         "ensemble_mean": {"by_buffer": ensemble_mean_by_buffer},
+        "regional_crosschecks": crosschecks_payload,
     }
 
 
@@ -1123,13 +1294,13 @@ def _evaluate_run(
     return depth_m, metrics
 
 
-def validate_sf(
+def validate_region(
     config_path: Path,
     scenario_id: str | None = None,
     sweep: bool = False,
     force: bool = False,
 ) -> dict[str, Any]:
-    """Downscale SFINCS water levels, score against SFPUC polygons, and write summary JSON."""
+    """Downscale SFINCS water levels, score against Tier B/D references, and write JSON."""
     with config_path.open("r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
@@ -1152,40 +1323,32 @@ def validate_sf(
         dst_transform = dem_ds.transform
         dem_nodata = float(dem_ds.nodata if dem_ds.nodata is not None else -9999.0)
 
-    sfpuc_path = Path(domain["validation_reference"])
-    if not sfpuc_path.exists():
-        raise FileNotFoundError(f"Validation reference vector not found: {sfpuc_path}")
-    sfpuc_gdf = gpd.read_file(sfpuc_path)
-    if sfpuc_gdf.crs is None:
-        raise ValueError(f"{sfpuc_path} is missing CRS")
-    sfpuc_utm = sfpuc_gdf.to_crs(project_crs)
-    obs_shapes = [
-        (geom, 1)
-        for geom in sfpuc_utm.geometry
-        if geom is not None and not geom.is_empty
-    ]
-    obs_mask = (
-        rasterize(
-            obs_shapes,
+    val_ref_raw = domain.get("validation_reference")
+    has_design_benchmark = bool(val_ref_raw)
+    if val_ref_raw:
+        sfpuc_path = Path(val_ref_raw)
+        if not sfpuc_path.exists():
+            raise FileNotFoundError(
+                f"Validation reference vector not found: {sfpuc_path}"
+            )
+        sfpuc_gdf = gpd.read_file(sfpuc_path)
+        if sfpuc_gdf.crs is None:
+            raise ValueError(f"{sfpuc_path} is missing CRS")
+        obs_mask = rasterize_benchmark_polygons(
+            gdf_utm=sfpuc_gdf.to_crs(project_crs),
             out_shape=dem_m.shape,
             transform=dst_transform,
-            fill=0,
-            dtype=np.uint8,
-        ).astype(bool)
-        if obs_shapes
-        else np.zeros(dem_m.shape, dtype=bool)
-    )
+        )
+    else:
+        obs_mask = np.zeros(dem_m.shape, dtype=bool)
 
     min_land_elev_m = float(val_cfg.get("min_land_elevation_m", 0.5))
     depth_threshold_m = float(val_cfg.get("depth_threshold_m", 0.1524))
     valid_dem = (dem_m != dem_nodata) & np.isfinite(dem_m)
-    land_valid_mask = valid_dem & (dem_m >= min_land_elev_m)
+    exclude_open_water = bool(val_cfg.get("exclude_open_water", True))
+    nlcd_arr: np.ndarray | None = None
     nlcd_src_raw = domain.get("nlcd_landcover_source")
-    if (
-        bool(val_cfg.get("exclude_open_water", True))
-        and nlcd_src_raw
-        and Path(nlcd_src_raw).exists()
-    ):
+    if exclude_open_water and nlcd_src_raw and Path(nlcd_src_raw).exists():
         nlcd_arr = np.zeros(dem_m.shape, dtype=np.uint8)
         with rasterio.open(Path(nlcd_src_raw)) as nlcd_ds:
             reproject(
@@ -1197,7 +1360,13 @@ def validate_sf(
                 dst_crs=project_crs,
                 resampling=Resampling.nearest,
             )
-        land_valid_mask = land_valid_mask & (nlcd_arr != 11)
+    land_valid_mask = compute_land_valid_mask(
+        dem_m=dem_m,
+        dem_nodata=dem_nodata,
+        min_land_elevation_m=min_land_elev_m,
+        nlcd_landcover=nlcd_arr,
+        exclude_open_water=exclude_open_water,
+    )
 
     bbox_utm = domain["bbox_epsg26910"]
     grid_res_m = float(domain["grid_resolution_m"])
@@ -1462,12 +1631,12 @@ def validate_sf(
             ev_pts_gdf = gpd.read_file(ev_311_path)
             if ev_pts_gdf.crs is None:
                 raise ValueError(f"{ev_311_path} is missing CRS")
-            ev_metrics = compute_311_validation_metrics(
+            ev_metrics = compute_point_capture_metrics(
                 points_gdf_utm=ev_pts_gdf.to_crs(project_crs),
                 ar_depth_m=ev_depth_m,
-                sfpuc_mask=obs_mask,
                 valid_land_mask=land_valid_mask,
                 transform=dst_transform,
+                benchmark_mask=obs_mask if has_design_benchmark else None,
                 nodata_value=dem_nodata,
             )
             event_results.append(
@@ -1477,10 +1646,28 @@ def validate_sf(
                     "scenario": ev_scenario,
                     "valid_land_points": ev_metrics["valid_land_points"],
                     "by_buffer": ev_metrics["by_buffer"],
+                    "tiers_evaluated": ["311"],
+                    "road_closures_validation": None,
+                    "gauge_hwm_validation": None,
                 }
             )
         if event_results:
-            ensemble_payload = aggregate_ensemble_311_metrics(event_results)
+            design_benchmark_payload = (
+                build_design_benchmark_summary(
+                    source=str(val_cfg.get("benchmark_source_name", "sfpuc_100yr")),
+                    depth_threshold_m=depth_threshold_m,
+                    metrics=best_metrics,
+                )
+                if has_design_benchmark
+                else None
+            )
+            ensemble_payload = aggregate_ensemble_311_metrics(
+                event_results,
+                region=str(project["region_id"]),
+                drainage_tier=str(sfincs_cfg.get("drainage_tier", "tier0")),
+                rain_source=str(sfincs_cfg.get("rain_source", "atlas14")),
+                design_benchmark=design_benchmark_payload,
+            )
             ensemble_path = Path(
                 val_cfg.get(
                     "ensemble_metrics_file",
@@ -1497,6 +1684,9 @@ def validate_sf(
             )
 
     return summary
+
+
+validate_sf = validate_region
 
 
 def main() -> None:
