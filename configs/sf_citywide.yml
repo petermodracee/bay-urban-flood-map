@@ -360,6 +360,7 @@ validation:
       validation_311_reference: "data/raw/sf_citywide/sf_311_20211024_floods.gpkg"
       validation_311_start_utc: "2021-10-24T00:00:00"
       validation_311_end_utc: "2021-10-26T00:00:00"
+      road_closures_file: null
       gauges_file: "data/raw/sf_citywide/sf_tide_obs_20211024.csv"
     - id: "ar_20221231"
       label: "Dec 31, 2022 Atmospheric River"
@@ -368,6 +369,7 @@ validation:
       validation_311_reference: "data/raw/sf_citywide/sf_311_20221231_floods.gpkg"
       validation_311_start_utc: "2022-12-31T00:00:00"
       validation_311_end_utc: "2023-01-02T00:00:00"
+      road_closures_file: null
       gauges_file: "data/raw/sf_citywide/sf_tide_obs_20221231.csv"
     - id: "ar_20230109"
       label: "Jan 9, 2023 Atmospheric River"
@@ -376,6 +378,7 @@ validation:
       validation_311_reference: "data/raw/sf_citywide/sf_311_20230109_floods.gpkg"
       validation_311_start_utc: "2023-01-09T00:00:00"
       validation_311_end_utc: "2023-01-11T00:00:00"
+      road_closures_file: null
       gauges_file: "data/raw/sf_citywide/sf_tide_obs_20230109.csv"
     - id: "ar_20240204"
       label: "Feb 4, 2024 Atmospheric River"
@@ -384,7 +387,11 @@ validation:
       validation_311_reference: "data/raw/sf_citywide/sf_311_20240204_floods.gpkg"
       validation_311_start_utc: "2024-02-04T00:00:00"
       validation_311_end_utc: "2024-02-06T00:00:00"
+      road_closures_file: null
       gauges_file: "data/raw/sf_citywide/sf_tide_obs_20240204.csv"
+  sources:
+    groundsource_file: null
+    nfip_claims_file: null
   report_markdown_file: "docs/reports/sf_v02_validation.md"
   sweep_drainage_rates_mm_hr: [5.0]
   sweep_manning_n_paved: [0.030]

@@ -33,8 +33,8 @@
 ---
 
 ## Phase 3: Tier C (Roadway Closures) & Tier D (311 + Groundsource)
-- [ ] Fetch and score open **Tier C** Caltrans QuickMap / PeMS / CHP / 511 SF Bay roadway flood closures across SF (e.g., US-101 / I-280 / Alemany / Cesar Chavez) against the 4-AR MRMS ensemble (`25 m / 50 m` road-snapped capture, lift vs. random road controls, `ROC-AUC`; `Praharaj et al., 2021`), with offline `pytest` coverage.
-- [ ] Integrate **Google Research Groundsource** (`CC BY 4.0` GeoParquet, filtered to `area_km2 <= 25`) clipped to SF alongside DataSF 311 (`Agonafir et al., 2022`; `Lerma et al., 2025`) to verify sub-basin flood presence and identify 1–2 untouched holdout ARs for `v0.6` anti-overfitting validation.
+- [x] Fetch and score open **Tier C** Caltrans QuickMap / PeMS / CHP / 511 SF Bay roadway flood closures across SF (e.g., US-101 / I-280 / Alemany / Cesar Chavez) against the 4-AR MRMS ensemble (`25 m / 50 m` road-snapped capture, lift vs. random road controls, `ROC-AUC`; `Praharaj et al., 2021`), with offline `pytest` coverage.
+- [x] Integrate **Google Research Groundsource** (`CC BY 4.0` GeoParquet, filtered to `area_km2 <= 25`) clipped to SF alongside DataSF 311 (`Agonafir et al., 2022`; `Lerma et al., 2025`) to verify sub-basin flood presence and identify 1–2 untouched holdout ARs for `v0.6` anti-overfitting validation.
 
 ---
 

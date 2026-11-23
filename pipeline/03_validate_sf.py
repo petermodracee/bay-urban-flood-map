@@ -28,7 +28,9 @@ from rasterio.transform import Affine, from_origin, rowcol
 from rasterio.warp import reproject
 from scipy import ndimage, stats
 from scipy.spatial import cKDTree
-from shapely.geometry import box
+from shapely.geometry import LineString, MultiLineString, Point, box
+from shapely.ops import nearest_points
+from shapely.strtree import STRtree
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -1127,6 +1129,526 @@ def load_benchmark_specs(cfg: Mapping[str, Any]) -> list[BenchmarkSpec]:
     return specs
 
 
+def _extract_road_linestrings(
+    roads_gdf_utm: gpd.GeoDataFrame | None,
+) -> list[LineString]:
+    """Flatten LineString/MultiLineString geometries into non-empty LineStrings."""
+    if roads_gdf_utm is None or roads_gdf_utm.empty:
+        return []
+    lines: list[LineString] = []
+    for geom in roads_gdf_utm.geometry:
+        if geom is None or geom.is_empty:
+            continue
+        if isinstance(geom, LineString) and geom.length > 0.0:
+            lines.append(geom)
+        elif isinstance(geom, MultiLineString):
+            for part in geom.geoms:
+                if isinstance(part, LineString) and part.length > 0.0:
+                    lines.append(part)
+    return lines
+
+
+def snap_points_to_roads(
+    points_gdf_utm: gpd.GeoDataFrame,
+    roads_gdf_utm: gpd.GeoDataFrame | None,
+    max_snap_distance_m: float = 50.0,
+) -> tuple[gpd.GeoDataFrame, int]:
+    """Snap closure points (or centroids) to nearest road within max_snap_distance_m."""
+    if points_gdf_utm.empty:
+        return points_gdf_utm.copy(), 0
+    lines = _extract_road_linestrings(roads_gdf_utm)
+    if not lines:
+        out = points_gdf_utm.copy()
+        out["geometry"] = [
+            geom.centroid if geom is not None and geom.geom_type != "Point" else geom
+            for geom in out.geometry
+        ]
+        return out, 0
+
+    tree = STRtree(lines)
+    snapped_geoms: list[Any] = []
+    snapped_count = 0
+    for geom in points_gdf_utm.geometry:
+        if geom is None or geom.is_empty:
+            snapped_geoms.append(geom)
+            continue
+        pt = geom.centroid if geom.geom_type != "Point" else geom
+        nearest_idx = int(tree.nearest(pt))
+        road_geom = lines[nearest_idx]
+        dist_m = float(pt.distance(road_geom))
+        if dist_m <= max_snap_distance_m:
+            _, on_road = nearest_points(pt, road_geom)
+            snapped_geoms.append(Point(float(on_road.x), float(on_road.y)))
+            snapped_count += 1
+        else:
+            snapped_geoms.append(pt)
+
+    out = points_gdf_utm.copy()
+    out["geometry"] = snapped_geoms
+    return out, snapped_count
+
+
+def sample_random_road_controls(
+    roads_gdf_utm: gpd.GeoDataFrame,
+    valid_land_mask: np.ndarray,
+    transform: Affine,
+    n_controls: int = 2000,
+    seed: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sample deterministic random UTM control coordinates along roads in valid_land_mask."""
+    lines = _extract_road_linestrings(roads_gdf_utm)
+    if not lines:
+        raise ValueError("Cannot sample road controls from an empty road network.")
+
+    lengths = np.asarray([line.length for line in lines], dtype=np.float64)
+    cum_lengths = np.cumsum(lengths)
+    total_length_m = float(cum_lengths[-1])
+    if total_length_m <= 0.0:
+        raise ValueError("Road network has zero total length.")
+
+    height, width = valid_land_mask.shape
+    rng = np.random.default_rng(seed)
+    n_candidates = max(int(n_controls) * 4, 4000)
+    samples_m = rng.uniform(0.0, total_length_m, size=n_candidates)
+
+    xs_list: list[float] = []
+    ys_list: list[float] = []
+    for d_m in samples_m:
+        line_idx = int(np.searchsorted(cum_lengths, d_m, side="right"))
+        line_idx = min(line_idx, len(lines) - 1)
+        prev_cum = float(cum_lengths[line_idx - 1]) if line_idx > 0 else 0.0
+        pt = lines[line_idx].interpolate(float(d_m) - prev_cum)
+        r, c = rowcol(transform, float(pt.x), float(pt.y))
+        if 0 <= r < height and 0 <= c < width and bool(valid_land_mask[r, c]):
+            xs_list.append(float(pt.x))
+            ys_list.append(float(pt.y))
+            if len(xs_list) >= int(n_controls):
+                break
+
+    if not xs_list:
+        raise ValueError("No road control points fell inside valid_land_mask.")
+
+    return np.asarray(xs_list, dtype=np.float64), np.asarray(ys_list, dtype=np.float64)
+
+
+def compute_road_closure_metrics(
+    closures_gdf_utm: gpd.GeoDataFrame,
+    ar_depth_m: np.ndarray,
+    valid_land_mask: np.ndarray,
+    transform: Affine,
+    roads_gdf_utm: gpd.GeoDataFrame | None = None,
+    max_snap_distance_m: float = 50.0,
+    nodata_value: float = -9999.0,
+    radii_m: Sequence[float] = (25.0, 50.0),
+    thresholds_m: Sequence[float] = (0.05, 0.1524),
+    n_controls: int = 2000,
+    seed: int = 42,
+    corridor_col: str = "corridor",
+) -> dict[str, Any]:
+    """Score Tier C roadway flood closures (road-snapped capture, road-control lift, ROC-AUC)."""
+    snapped_gdf, n_snapped = snap_points_to_roads(
+        closures_gdf_utm,
+        roads_gdf_utm,
+        max_snap_distance_m=max_snap_distance_m,
+    )
+    filtered, xs_pts, ys_pts = extract_valid_land_points(
+        snapped_gdf, valid_land_mask, transform
+    )
+    n_valid_pts = int(xs_pts.size)
+    if n_valid_pts == 0:
+        raise ValueError(
+            "Cannot compute Tier C road-closure validation without valid land points."
+        )
+
+    control_type = "road_network"
+    try:
+        if roads_gdf_utm is not None and not roads_gdf_utm.empty:
+            xs_ctrl, ys_ctrl = sample_random_road_controls(
+                roads_gdf_utm=roads_gdf_utm,
+                valid_land_mask=valid_land_mask,
+                transform=transform,
+                n_controls=n_controls,
+                seed=seed,
+            )
+        else:
+            raise ValueError("No road network provided.")
+    except ValueError:
+        control_type = "valid_land"
+        xs_ctrl, ys_ctrl = sample_random_land_controls(
+            valid_land_mask=valid_land_mask,
+            transform=transform,
+            n_controls=n_controls,
+            seed=seed,
+        )
+
+    sorted_radii = tuple(sorted(float(r) for r in radii_m))
+    ar_pts = sample_max_depth_within_buffers(
+        ar_depth_m, transform, nodata_value, xs_pts, ys_pts, sorted_radii
+    )
+    ar_ctrl = sample_max_depth_within_buffers(
+        ar_depth_m, transform, nodata_value, xs_ctrl, ys_ctrl, sorted_radii
+    )
+
+    by_buffer: list[dict[str, Any]] = []
+    for r_m in sorted_radii:
+        entry: dict[str, Any] = {
+            "radius_m": r_m,
+            "ar_roc_auc": compute_roc_auc(ar_pts[r_m], ar_ctrl[r_m]),
+            "thresholds": {},
+        }
+        for thr in thresholds_m:
+            thr_key = f"{thr:g}m"
+            hits_pts = ar_pts[r_m] >= float(thr)
+            hits_ctrl = ar_ctrl[r_m] >= float(thr)
+            rate_pts = float(np.mean(hits_pts))
+            rate_ctrl = float(np.mean(hits_ctrl))
+            lift = round(rate_pts / rate_ctrl, 3) if rate_ctrl > 0.0 else None
+            entry["thresholds"][thr_key] = {
+                "hit_count": int(np.sum(hits_pts)),
+                "capture_rate": round(rate_pts, 4),
+                "control_rate": round(rate_ctrl, 4),
+                "lift": lift,
+            }
+        by_buffer.append(entry)
+
+    by_corridor: dict[str, Any] = {}
+    if corridor_col in filtered.columns:
+        primary_r = 25.0 if 25.0 in sorted_radii else sorted_radii[0]
+        primary_thr = 0.05 if 0.05 in thresholds_m else float(thresholds_m[0])
+        corridor_vals = filtered[corridor_col].fillna("unknown").astype(str)
+        for corr_name in sorted(corridor_vals.unique()):
+            mask = (corridor_vals == corr_name).to_numpy()
+            if not np.any(mask):
+                continue
+            hits = ar_pts[primary_r][mask] >= primary_thr
+            by_corridor[corr_name] = {
+                "count": int(np.sum(mask)),
+                "hit_count": int(np.sum(hits)),
+                "capture_rate": round(float(np.mean(hits)), 4),
+                "radius_m": primary_r,
+                "threshold_m": primary_thr,
+            }
+
+    return {
+        "valid_land_points": n_valid_pts,
+        "snapped_points": int(n_snapped),
+        "n_controls": int(xs_ctrl.size),
+        "control_type": control_type,
+        "by_buffer": by_buffer,
+        "by_corridor": by_corridor,
+    }
+
+
+def filter_groundsource_records(
+    gdf: gpd.GeoDataFrame,
+    max_area_km2: float = 25.0,
+    domain_bbox_utm: Sequence[float] | None = None,
+    target_crs: str = "EPSG:26910",
+) -> gpd.GeoDataFrame:
+    """Filter Google Research Groundsource polygons to area_km2 <= max_area_km2 in UTM."""
+    if gdf.empty:
+        out = gdf.copy()
+        if out.crs is None:
+            out = out.set_crs(target_crs)
+        elif CRS.from_user_input(out.crs) != CRS.from_user_input(target_crs):
+            out = out.to_crs(target_crs)
+        return out
+
+    if gdf.crs is None:
+        raise ValueError("Groundsource GeoDataFrame is missing CRS.")
+    out = (
+        gdf.to_crs(target_crs)
+        if CRS.from_user_input(gdf.crs) != CRS.from_user_input(target_crs)
+        else gdf.copy()
+    )
+    out = out[out.geometry.notna() & ~out.geometry.is_empty].copy()
+    if out.empty:
+        return out.reset_index(drop=True)
+
+    if "area_km2" in out.columns:
+        area_km2 = pd.to_numeric(out["area_km2"], errors="coerce")
+        missing = area_km2.isna()
+        if missing.any():
+            area_km2 = area_km2.where(~missing, out.geometry.area / 1_000_000.0)
+    else:
+        area_km2 = out.geometry.area / 1_000_000.0
+    out["area_km2"] = area_km2.astype(float)
+    out = out[(out["area_km2"] > 0.0) & (out["area_km2"] <= float(max_area_km2))].copy()
+
+    if domain_bbox_utm is not None and not out.empty:
+        xmin, ymin, xmax, ymax = (float(v) for v in domain_bbox_utm)
+        domain_box = box(xmin, ymin, xmax, ymax)
+        out = out[out.geometry.intersects(domain_box)].copy()
+
+    return out.reset_index(drop=True)
+
+
+def build_subbasin_grid(
+    domain_bbox_utm: Sequence[float],
+    cell_size_m: float = 2000.0,
+    crs: str = "EPSG:26910",
+) -> gpd.GeoDataFrame:
+    """Build a regular UTM sub-basin grid covering domain_bbox_utm."""
+    xmin, ymin, xmax, ymax = (float(v) for v in domain_bbox_utm)
+    step = float(cell_size_m)
+    if step <= 0.0:
+        raise ValueError("cell_size_m must be positive.")
+
+    rows: list[dict[str, Any]] = []
+    geoms: list[Any] = []
+    x = xmin
+    ix = 0
+    while x < xmax:
+        x_hi = min(x + step, xmax)
+        y = ymin
+        iy = 0
+        while y < ymax:
+            y_hi = min(y + step, ymax)
+            rows.append({"subbasin_id": f"grid_{ix}_{iy}"})
+            geoms.append(box(x, y, x_hi, y_hi))
+            y += step
+            iy += 1
+        x += step
+        ix += 1
+    return gpd.GeoDataFrame(rows, geometry=geoms, crs=crs)
+
+
+def _parse_event_window_dates(
+    ev: Mapping[str, Any], tolerance_days: int
+) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+    start_raw = ev.get("validation_311_start_utc") or ev.get("start_date")
+    end_raw = ev.get("validation_311_end_utc") or ev.get("end_date")
+    if not start_raw:
+        return None
+    start_ts = pd.Timestamp(start_raw).tz_localize(None).normalize()
+    end_ts = (
+        pd.Timestamp(end_raw).tz_localize(None).normalize() if end_raw else start_ts
+    )
+    pad = pd.Timedelta(days=int(tolerance_days))
+    return start_ts - pad, end_ts + pad
+
+
+def discover_holdout_storm_candidates(
+    groundsource_gdf_utm: gpd.GeoDataFrame,
+    ensemble_events: Sequence[Mapping[str, Any]],
+    tolerance_days: int = 2,
+    min_records: int = 1,
+) -> list[dict[str, Any]]:
+    """Identify Groundsource storm dates outside calibration windows for v0.6 holdouts."""
+    if groundsource_gdf_utm.empty or "start_date" not in groundsource_gdf_utm.columns:
+        return []
+
+    starts = pd.to_datetime(groundsource_gdf_utm["start_date"], errors="coerce")
+    if "end_date" in groundsource_gdf_utm.columns:
+        ends = pd.to_datetime(groundsource_gdf_utm["end_date"], errors="coerce").fillna(
+            starts
+        )
+    else:
+        ends = starts
+
+    if starts.dt.tz is not None:
+        starts = starts.dt.tz_localize(None)
+    if ends.dt.tz is not None:
+        ends = ends.dt.tz_localize(None)
+
+    cal_windows: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+    for ev in ensemble_events:
+        if ev.get("holdout"):
+            continue
+        win = _parse_event_window_dates(ev, tolerance_days=tolerance_days)
+        if win is not None:
+            cal_windows.append(win)
+
+    grouped: dict[str, dict[str, Any]] = {}
+    for idx, (st, en) in enumerate(zip(starts, ends, strict=False)):
+        if pd.isna(st):
+            continue
+        st_d = st.normalize()
+        en_d = en.normalize() if not pd.isna(en) else st_d
+        overlaps_cal = any(
+            not (en_d < w_start or st_d > w_end) for w_start, w_end in cal_windows
+        )
+        if overlaps_cal:
+            continue
+        key = st_d.strftime("%Y-%m-%d")
+        area_val = (
+            float(groundsource_gdf_utm.iloc[idx]["area_km2"])
+            if "area_km2" in groundsource_gdf_utm.columns
+            else float(groundsource_gdf_utm.geometry.iloc[idx].area / 1_000_000.0)
+        )
+        bucket = grouped.setdefault(
+            key,
+            {
+                "start_date": key,
+                "end_date": en_d.strftime("%Y-%m-%d"),
+                "n_records": 0,
+                "total_area_km2": 0.0,
+            },
+        )
+        bucket["n_records"] += 1
+        bucket["total_area_km2"] = round(bucket["total_area_km2"] + area_val, 3)
+        bucket["end_date"] = max(bucket["end_date"], en_d.strftime("%Y-%m-%d"))
+
+    candidates = [v for v in grouped.values() if v["n_records"] >= int(min_records)]
+    candidates.sort(
+        key=lambda item: (
+            -item["n_records"],
+            -item["total_area_km2"],
+            item["start_date"],
+        )
+    )
+    return candidates
+
+
+def evaluate_groundsource_subbasin_match(
+    groundsource_gdf_utm: gpd.GeoDataFrame,
+    modeled_depth_m: np.ndarray,
+    valid_land_mask: np.ndarray,
+    transform: Affine,
+    subbasins_gdf_utm: gpd.GeoDataFrame | None = None,
+    domain_bbox_utm: Sequence[float] | None = None,
+    depth_threshold_m: float = 0.05,
+    nodata_value: float = -9999.0,
+    event_windows: Sequence[Mapping[str, Any]] | None = None,
+    tolerance_days: int = 2,
+) -> dict[str, Any]:
+    """Evaluate Tier D Groundsource sub-basin flood presence agreement and holdout dates."""
+    if subbasins_gdf_utm is None:
+        if domain_bbox_utm is None:
+            height, width = valid_land_mask.shape
+            xmin = float(transform.c)
+            ymax = float(transform.f)
+            xmax = xmin + width * float(transform.a)
+            ymin = ymax + height * float(transform.e)
+            domain_bbox_utm = (xmin, ymin, xmax, ymax)
+        subbasins = build_subbasin_grid(domain_bbox_utm=domain_bbox_utm)
+    else:
+        subbasins = subbasins_gdf_utm.reset_index(drop=True)
+
+    id_col = "subbasin_id" if "subbasin_id" in subbasins.columns else None
+    shapes = [
+        (geom, idx + 1)
+        for idx, geom in enumerate(subbasins.geometry)
+        if geom is not None and not geom.is_empty
+    ]
+    subbasin_raster = (
+        rasterize(
+            shapes=shapes,
+            out_shape=valid_land_mask.shape,
+            transform=transform,
+            fill=0,
+            dtype="int32",
+        )
+        if shapes
+        else np.zeros(valid_land_mask.shape, dtype="int32")
+    )
+
+    valid_depth = (
+        valid_land_mask
+        & np.isfinite(modeled_depth_m)
+        & (modeled_depth_m != nodata_value)
+        & (modeled_depth_m >= float(depth_threshold_m))
+    )
+
+    n_gs_present = 0
+    n_model_present = 0
+    n_both = 0
+    n_gs_only = 0
+    n_model_only = 0
+    n_neither = 0
+    evaluated_subbasins = 0
+
+    for idx, row in subbasins.iterrows():
+        geom = row.geometry
+        if geom is None or geom.is_empty:
+            continue
+        sb_mask = (subbasin_raster == (idx + 1)) & valid_land_mask
+        if not np.any(sb_mask):
+            continue
+        evaluated_subbasins += 1
+        model_has_flood = bool(np.any(valid_depth & sb_mask))
+        gs_has_flood = (
+            bool(groundsource_gdf_utm.geometry.intersects(geom).any())
+            if not groundsource_gdf_utm.empty
+            else False
+        )
+        if gs_has_flood:
+            n_gs_present += 1
+        if model_has_flood:
+            n_model_present += 1
+        if gs_has_flood and model_has_flood:
+            n_both += 1
+        elif gs_has_flood:
+            n_gs_only += 1
+        elif model_has_flood:
+            n_model_only += 1
+        else:
+            n_neither += 1
+
+    hit_rate = round(n_both / n_gs_present, 4) if n_gs_present > 0 else None
+    accuracy = (
+        round((n_both + n_neither) / evaluated_subbasins, 4)
+        if evaluated_subbasins > 0
+        else None
+    )
+
+    matched_events: list[str] = []
+    if (
+        event_windows
+        and not groundsource_gdf_utm.empty
+        and "start_date" in groundsource_gdf_utm.columns
+    ):
+        starts = pd.to_datetime(groundsource_gdf_utm["start_date"], errors="coerce")
+        if starts.dt.tz is not None:
+            starts = starts.dt.tz_localize(None)
+        ends = (
+            pd.to_datetime(groundsource_gdf_utm["end_date"], errors="coerce").fillna(
+                starts
+            )
+            if "end_date" in groundsource_gdf_utm.columns
+            else starts
+        )
+        if ends.dt.tz is not None:
+            ends = ends.dt.tz_localize(None)
+        for ev in event_windows:
+            win = _parse_event_window_dates(ev, tolerance_days=tolerance_days)
+            if win is None:
+                continue
+            w_start, w_end = win
+            overlaps = (
+                (ends.dt.normalize() >= w_start) & (starts.dt.normalize() <= w_end)
+            ).any()
+            if bool(overlaps):
+                matched_events.append(str(ev.get("id", "")))
+
+    holdout_candidates = (
+        discover_holdout_storm_candidates(
+            groundsource_gdf_utm,
+            ensemble_events=event_windows,
+            tolerance_days=tolerance_days,
+        )
+        if event_windows is not None
+        else []
+    )
+
+    return {
+        "n_groundsource_records": len(groundsource_gdf_utm),
+        "n_subbasins": int(evaluated_subbasins),
+        "subbasin_id_col": id_col or "grid",
+        "depth_threshold_m": float(depth_threshold_m),
+        "n_gs_present": int(n_gs_present),
+        "n_model_present": int(n_model_present),
+        "n_both_present": int(n_both),
+        "n_gs_only": int(n_gs_only),
+        "n_model_only": int(n_model_only),
+        "n_neither": int(n_neither),
+        "presence_hit_rate": hit_rate,
+        "presence_accuracy": accuracy,
+        "matched_ensemble_events": matched_events,
+        "holdout_storm_candidates": holdout_candidates,
+    }
+
+
 def aggregate_ensemble_311_metrics(
     event_results: Sequence[Mapping[str, Any]],
     *,
@@ -1866,6 +2388,129 @@ def evaluate_event_gauges(
     }
 
 
+def _load_vector_or_csv_points(file_path: Path, target_crs: str) -> gpd.GeoDataFrame:
+    """Load a vector file (.gpkg/.geojson) or CSV with lat/lon into target_crs."""
+    if file_path.suffix.lower() == ".csv":
+        df = pd.read_csv(file_path)
+        lat_col = next((c for c in ("lat", "latitude", "y") if c in df.columns), None)
+        lon_col = next(
+            (c for c in ("lon", "lng", "longitude", "x") if c in df.columns), None
+        )
+        if lat_col is None or lon_col is None:
+            raise ValueError(f"{file_path} CSV is missing lat/lon columns.")
+        src_crs = "EPSG:4326" if lat_col in ("lat", "latitude") else target_crs
+        gdf = gpd.GeoDataFrame(
+            df,
+            geometry=gpd.points_from_xy(df[lon_col], df[lat_col]),
+            crs=src_crs,
+        )
+    else:
+        gdf = gpd.read_file(file_path)
+        if gdf.crs is None:
+            raise ValueError(f"{file_path} is missing CRS.")
+    return (
+        gdf.to_crs(target_crs)
+        if CRS.from_user_input(gdf.crs) != CRS.from_user_input(target_crs)
+        else gdf
+    )
+
+
+def evaluate_event_road_closures(
+    road_closures_file: Path,
+    roads_file: Path | None,
+    ar_depth_m: np.ndarray,
+    valid_land_mask: np.ndarray,
+    transform: Affine,
+    project_crs: str = "EPSG:26910",
+    nodata_value: float = -9999.0,
+) -> dict[str, Any] | None:
+    """Load Tier C road-closure records and score against modeled AR flood depth."""
+    if not road_closures_file.exists():
+        return None
+    closures_utm = _load_vector_or_csv_points(road_closures_file, project_crs)
+    if closures_utm.empty:
+        return None
+
+    roads_utm: gpd.GeoDataFrame | None = None
+    if roads_file is not None and roads_file.exists():
+        roads_raw = gpd.read_file(roads_file)
+        if roads_raw.crs is not None:
+            roads_utm = (
+                roads_raw.to_crs(project_crs)
+                if CRS.from_user_input(roads_raw.crs)
+                != CRS.from_user_input(project_crs)
+                else roads_raw
+            )
+            if "highway" in roads_utm.columns:
+                roads_utm = roads_utm[roads_utm["highway"].notna()].copy()
+
+    try:
+        return compute_road_closure_metrics(
+            closures_gdf_utm=closures_utm,
+            ar_depth_m=ar_depth_m,
+            valid_land_mask=valid_land_mask,
+            transform=transform,
+            roads_gdf_utm=roads_utm,
+            nodata_value=nodata_value,
+        )
+    except ValueError:
+        return None
+
+
+def evaluate_groundsource_crosscheck(
+    groundsource_file: Path,
+    modeled_depth_m: np.ndarray,
+    valid_land_mask: np.ndarray,
+    transform: Affine,
+    domain_bbox_utm: Sequence[float] | None = None,
+    subbasins_file: Path | None = None,
+    project_crs: str = "EPSG:26910",
+    depth_threshold_m: float = 0.05,
+    nodata_value: float = -9999.0,
+    event_windows: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Load Google Research Groundsource GeoParquet/GPKG and run Tier D sub-basin crosscheck."""
+    if not groundsource_file.exists():
+        return None
+    suffix = groundsource_file.suffix.lower()
+    if suffix in (".parquet", ".geoparquet"):
+        gs_raw = gpd.read_parquet(groundsource_file)
+    else:
+        gs_raw = gpd.read_file(groundsource_file)
+    if gs_raw.crs is None:
+        gs_raw = gs_raw.set_crs("EPSG:4326")
+
+    gs_utm = filter_groundsource_records(
+        gs_raw,
+        max_area_km2=25.0,
+        domain_bbox_utm=domain_bbox_utm,
+        target_crs=project_crs,
+    )
+
+    subbasins_utm: gpd.GeoDataFrame | None = None
+    if subbasins_file is not None and subbasins_file.exists():
+        sb_raw = gpd.read_file(subbasins_file)
+        if sb_raw.crs is None:
+            raise ValueError(f"{subbasins_file} is missing CRS.")
+        subbasins_utm = (
+            sb_raw.to_crs(project_crs)
+            if CRS.from_user_input(sb_raw.crs) != CRS.from_user_input(project_crs)
+            else sb_raw
+        )
+
+    return evaluate_groundsource_subbasin_match(
+        groundsource_gdf_utm=gs_utm,
+        modeled_depth_m=modeled_depth_m,
+        valid_land_mask=valid_land_mask,
+        transform=transform,
+        subbasins_gdf_utm=subbasins_utm,
+        domain_bbox_utm=domain_bbox_utm,
+        depth_threshold_m=depth_threshold_m,
+        nodata_value=nodata_value,
+        event_windows=event_windows,
+    )
+
+
 def validate_region(
     config_path: Path,
     scenario_id: str | None = None,
@@ -2237,6 +2882,21 @@ def validate_region(
                 )
                 if gauge_hwm_val is not None:
                     tiers_evaluated.append("gauge_hwm")
+            road_closures_val: dict[str, Any] | None = None
+            road_closures_raw = ev.get("road_closures_file")
+            if road_closures_raw:
+                roads_raw = domain.get("roads_rail_source")
+                road_closures_val = evaluate_event_road_closures(
+                    road_closures_file=Path(road_closures_raw),
+                    roads_file=Path(roads_raw) if roads_raw else None,
+                    ar_depth_m=ev_depth_m,
+                    valid_land_mask=land_valid_mask,
+                    transform=dst_transform,
+                    project_crs=project_crs,
+                    nodata_value=dem_nodata,
+                )
+                if road_closures_val is not None:
+                    tiers_evaluated.append("road_closures")
             event_results.append(
                 {
                     "id": str(ev["id"]),
@@ -2245,7 +2905,7 @@ def validate_region(
                     "valid_land_points": ev_metrics["valid_land_points"],
                     "by_buffer": ev_metrics["by_buffer"],
                     "tiers_evaluated": tiers_evaluated,
-                    "road_closures_validation": None,
+                    "road_closures_validation": road_closures_val,
                     "gauge_hwm_validation": gauge_hwm_val,
                 }
             )
@@ -2259,12 +2919,34 @@ def validate_region(
                 if primary_benchmark is not None
                 else None
             )
+            sources_cfg = val_cfg.get("sources") or {}
+            groundsource_match: dict[str, Any] | None = None
+            gs_file_raw = sources_cfg.get("groundsource_file")
+            if gs_file_raw:
+                subbasins_raw = sources_cfg.get("subbasins_file")
+                groundsource_match = evaluate_groundsource_crosscheck(
+                    groundsource_file=Path(gs_file_raw),
+                    modeled_depth_m=best_depth_m,
+                    valid_land_mask=land_valid_mask,
+                    transform=dst_transform,
+                    domain_bbox_utm=domain.get("bbox_epsg26910"),
+                    subbasins_file=Path(subbasins_raw) if subbasins_raw else None,
+                    project_crs=project_crs,
+                    depth_threshold_m=0.05,
+                    nodata_value=dem_nodata,
+                    event_windows=ensemble_cfg,
+                )
+            regional_crosschecks = {
+                "groundsource_subbasin_match": groundsource_match,
+                "nfip_tract_spearman_rho": None,
+            }
             ensemble_payload = aggregate_ensemble_311_metrics(
                 event_results,
                 region=str(project["region_id"]),
                 drainage_tier=str(sfincs_cfg.get("drainage_tier", "tier0")),
                 rain_source=str(sfincs_cfg.get("rain_source", "atlas14")),
                 design_benchmark=design_benchmark_payload,
+                regional_crosschecks=regional_crosschecks,
             )
             ensemble_path = Path(
                 val_cfg.get(

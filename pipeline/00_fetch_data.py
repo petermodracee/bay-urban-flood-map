@@ -46,6 +46,17 @@ DATASF_100YR_URL = (
 DATASF_311_URL = "https://data.sfgov.org/resource/vw6y-z8j6.json"
 NOAA_COOPS_URL = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
 OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+CALTRANS_D4_LCS_URL = "https://cwwp2.dot.ca.gov/data/d4/lcs/lcsStatusD04.json"
+CALTRANS_D4_CHP_URL = "https://cwwp2.dot.ca.gov/data/d4/chp/chpIncidentsD04.json"
+FLOOD_ROAD_CLOSURE_KEYWORDS = (
+    "flood",
+    "flooding",
+    "standing water",
+    "high water",
+    "ponding",
+    "mudslide",
+    "washout",
+)
 DEFAULT_HTTP_TIMEOUT_S = 180
 
 
@@ -565,6 +576,165 @@ def parse_datasf_311_flood_reports(
             }
         )
         geometries.append(Point(lon, lat))
+
+    if not parsed_rows:
+        return gpd.GeoDataFrame(
+            {col: [] for col in columns},
+            geometry=gpd.GeoSeries([], crs="EPSG:4326"),
+            crs="EPSG:4326",
+        )
+    return gpd.GeoDataFrame(parsed_rows, geometry=geometries, crs="EPSG:4326")
+
+
+def is_flood_road_closure(
+    text: str | None,
+    keywords: Sequence[str] = FLOOD_ROAD_CLOSURE_KEYWORDS,
+) -> bool:
+    """Return True when a road-closure description/type matches flood keywords."""
+    if not text:
+        return False
+    lowered = str(text).lower()
+    return any(str(kw).lower() in lowered for kw in keywords)
+
+
+def _within_wgs84_bbox(
+    lon: float, lat: float, bbox_wgs84: Sequence[float] | None
+) -> bool:
+    if bbox_wgs84 is None:
+        return True
+    xmin, ymin, xmax, ymax = (float(v) for v in bbox_wgs84)
+    return xmin <= lon <= xmax and ymin <= lat <= ymax
+
+
+def parse_caltrans_lcs_json(
+    payload: Mapping[str, Any],
+    bbox_wgs84: Sequence[float] | None = None,
+    flood_only: bool = True,
+) -> gpd.GeoDataFrame:
+    """Parse Caltrans QuickMap/CWWP2 LCS JSON into an EPSG:4326 Point GeoDataFrame."""
+    columns = ["event_id", "source", "corridor", "description", "timestamp_utc"]
+    parsed_rows: list[dict[str, Any]] = []
+    geometries: list[Point] = []
+
+    for item in payload.get("data", []):
+        lcs = item.get("lcs", item) if isinstance(item, Mapping) else {}
+        if not isinstance(lcs, Mapping):
+            continue
+        loc = lcs.get("location", {}) or {}
+        begin = loc.get("begin", {}) or {}
+        closure = lcs.get("closure", {}) or {}
+
+        try:
+            lat = float(begin["beginLatitude"])
+            lon = float(begin["beginLongitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (math.isfinite(lat) and math.isfinite(lon)):
+            continue
+        if not _within_wgs84_bbox(lon, lat, bbox_wgs84):
+            continue
+
+        desc_parts = [
+            str(closure.get("typeOfWork") or ""),
+            str(closure.get("typeOfClosure") or ""),
+            str(closure.get("closureComments") or ""),
+            str(begin.get("beginLocationName") or ""),
+        ]
+        description = " | ".join(p for p in desc_parts if p.strip())
+        if flood_only and not is_flood_road_closure(description):
+            continue
+
+        ts_info = closure.get("closureTimestamp", {}) or {}
+        ts_val = (
+            ts_info.get("closureStartDate") or ts_info.get("closureStartEpoch") or ""
+        )
+        corridor = str(
+            begin.get("beginRoute") or begin.get("beginLocationName") or ""
+        ).strip()
+
+        parsed_rows.append(
+            {
+                "event_id": str(closure.get("closureID") or lcs.get("index") or ""),
+                "source": "caltrans_lcs",
+                "corridor": corridor,
+                "description": description,
+                "timestamp_utc": str(ts_val),
+            }
+        )
+        geometries.append(Point(lon, lat))
+
+    if not parsed_rows:
+        return gpd.GeoDataFrame(
+            {col: [] for col in columns},
+            geometry=gpd.GeoSeries([], crs="EPSG:4326"),
+            crs="EPSG:4326",
+        )
+    return gpd.GeoDataFrame(parsed_rows, geometry=geometries, crs="EPSG:4326")
+
+
+def parse_511_events_json(
+    payload: Mapping[str, Any],
+    bbox_wgs84: Sequence[float] | None = None,
+    flood_only: bool = True,
+) -> gpd.GeoDataFrame:
+    """Parse 511 SF Bay Open511 traffic events JSON into an EPSG:4326 GeoDataFrame."""
+    columns = ["event_id", "source", "corridor", "description", "timestamp_utc"]
+    parsed_rows: list[dict[str, Any]] = []
+    geometries: list[Point | LineString] = []
+
+    for ev in payload.get("events", []):
+        if not isinstance(ev, Mapping):
+            continue
+        geom_obj = ev.get("geography") or {}
+        gtype = str(geom_obj.get("type") or "")
+        coords = geom_obj.get("coordinates")
+        geom: Point | LineString | None = None
+        try:
+            if gtype == "Point" and isinstance(coords, Sequence) and len(coords) >= 2:
+                lon, lat = float(coords[0]), float(coords[1])
+                if math.isfinite(lon) and math.isfinite(lat):
+                    geom = Point(lon, lat)
+            elif (
+                gtype == "LineString"
+                and isinstance(coords, Sequence)
+                and len(coords) >= 2
+            ):
+                pts = [(float(c[0]), float(c[1])) for c in coords]
+                if all(math.isfinite(x) and math.isfinite(y) for x, y in pts):
+                    geom = LineString(pts)
+        except (TypeError, ValueError, IndexError):
+            continue
+        if geom is None:
+            continue
+
+        centroid = geom.centroid
+        if not _within_wgs84_bbox(float(centroid.x), float(centroid.y), bbox_wgs84):
+            continue
+
+        headline = str(ev.get("headline") or "")
+        desc = str(ev.get("description") or "")
+        ev_type = str(ev.get("event_type") or "")
+        combined = " | ".join(p for p in (headline, desc, ev_type) if p.strip())
+        if flood_only and not is_flood_road_closure(combined):
+            continue
+
+        roads = ev.get("roads") or []
+        corridor = ""
+        if isinstance(roads, Sequence) and roads:
+            first_road = roads[0]
+            if isinstance(first_road, Mapping):
+                corridor = str(first_road.get("name") or "")
+
+        parsed_rows.append(
+            {
+                "event_id": str(ev.get("id") or ""),
+                "source": "511_sf_bay",
+                "corridor": corridor,
+                "description": combined,
+                "timestamp_utc": str(ev.get("updated") or ev.get("created") or ""),
+            }
+        )
+        geometries.append(geom)
 
     if not parsed_rows:
         return gpd.GeoDataFrame(
@@ -1382,6 +1552,39 @@ def _fetch_ensemble_311(
         )
 
 
+def _fetch_ensemble_road_closures(
+    cfg: Mapping[str, Any],
+    buffered_wgs84_bbox: Sequence[float],
+    force: bool = False,
+) -> None:
+    """Fetch optional Tier C road-closure feeds when road_closures_url is configured."""
+    ensemble_cfg = cfg.get("validation", {}).get("hindcast_ensemble") or []
+    for ev in ensemble_cfg:
+        url = ev.get("road_closures_url")
+        out_raw = ev.get("road_closures_file")
+        if not url or not out_raw:
+            continue
+        out_path = Path(out_raw)
+        if out_path.exists() and not force:
+            print(f"[00_fetch_data] Cached Tier C road closures -> {out_path}")
+            continue
+        resp = requests.get(str(url), timeout=DEFAULT_HTTP_TIMEOUT_S)
+        resp.raise_for_status()
+        payload = resp.json()
+        fmt = str(ev.get("road_closures_format") or "").lower()
+        if fmt == "511" or ("events" in payload and "data" not in payload):
+            gdf = parse_511_events_json(
+                payload, bbox_wgs84=buffered_wgs84_bbox, flood_only=True
+            )
+        else:
+            gdf = parse_caltrans_lcs_json(
+                payload, bbox_wgs84=buffered_wgs84_bbox, flood_only=True
+            )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        gdf.to_file(out_path, driver="GPKG")
+        print(f"[00_fetch_data] Saved {len(gdf)} Tier C road closures -> {out_path}")
+
+
 def fetch_data(config_path: Path, force: bool = False) -> None:
     """Fetch all Phase 0 raw datasets and generate design-storm hyetographs."""
     with config_path.open("r", encoding="utf-8") as f:
@@ -1464,6 +1667,11 @@ def fetch_data(config_path: Path, force: bool = False) -> None:
         force=force,
     )
     _fetch_ensemble_311(
+        cfg=cfg,
+        buffered_wgs84_bbox=buffered_wgs84_bbox,
+        force=force,
+    )
+    _fetch_ensemble_road_closures(
         cfg=cfg,
         buffered_wgs84_bbox=buffered_wgs84_bbox,
         force=force,
