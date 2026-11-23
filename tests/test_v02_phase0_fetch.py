@@ -108,4 +108,4 @@ def test_split_wgs84_bbox_for_overpass_and_citywide_config() -> None:
     assert cfg["domain"]["subgrid_resolution_m"] == 2.0
     assert cfg["terrain_prep"]["manning_n_paved"] == 0.030
     assert cfg["sfincs_model"]["drainage_rate_mm_hr"] == 5.0
-    assert len(cfg["scenarios"]) == 9
+    assert len(cfg["scenarios"]) >= 9

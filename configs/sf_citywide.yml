@@ -10,7 +10,36 @@ project:
   crs: "EPSG:26910"  # NAD83 / UTM Zone 10N (meters)
   output_crs: "EPSG:3857"  # Web Mercator for Cloud Optimized GeoTIFFs
   vertical_datum: "NAVD88"
-  tide_gauge: "9414290"  # NOAA San Francisco, CA
+  tide_gauge: "9414290"  # NOAA San Francisco, CA (primary control gauge)
+  tide_gauges:
+    - id: "9414290"
+      name: "San Francisco (Presidio)"
+      x_epsg26910: 547016.8
+      y_epsg26910: 4184458.7
+      mhhw_m: 1.798
+      tidal_amp_m: 0.829
+      phase_lag_min: 0.0
+    - id: "9414750"
+      name: "Alameda"
+      x_epsg26910: 561625.5
+      y_epsg26910: 4180743.7
+      mhhw_m: 1.941
+      tidal_amp_m: 0.960
+      phase_lag_min: 18.0
+    - id: "9414863"
+      name: "Richmond"
+      x_epsg26910: 552729.9
+      y_epsg26910: 4198029.3
+      mhhw_m: 1.846
+      tidal_amp_m: 0.850
+      phase_lag_min: 24.0
+    - id: "9414523"
+      name: "Redwood City"
+      x_epsg26910: 569653.7
+      y_epsg26910: 4151388.8
+      mhhw_m: 2.140
+      tidal_amp_m: 1.158
+      phase_lag_min: 60.0
 
 domain:
   # Full mainland San Francisco peninsula [xmin, ymin, xmax, ymax] in EPSG:26910 (13.0 km x 12.4 km)
@@ -26,6 +55,8 @@ domain:
   buildings_source: "data/raw/sf_citywide/sf_citywide_buildings.gpkg"
   buildings_url: "https://data.sfgov.org/api/geospatial/ynuv-fyni?method=export&format=GeoJSON"
   shoreline_structures_source: "data/raw/sf_citywide/sf_sfei_shoreline_structures.gpkg"
+  storm_drain_source: null
+  polder_mask_source: null
   sfei_raw_gdb_path: "data/raw/sf_citywide/SFBayShoreInventory_SFEI_2016_0/ESRI ArcGIS/SFBayShoreInventory__SFEI_2016.gdb"
   sfei_raw_layer: "San_Francisco_Bay_Shore_Inventory__100ft_segments_with_elevation"
   validation_reference: "data/raw/sfpuc_100yr_flood_risk.gpkg"
@@ -84,6 +115,47 @@ rain_events:
     end_date: "2023-01-01"
     timestep_min: 60
     hyetograph_file: "data/raw/sf_citywide/sf_hyetograph_ar_20221231_48hr.csv"
+    mrms_product: "MultiSensor_QPE_01H_Pass2"
+    mrms_qpe_file: "data/raw/sf_citywide/sf_mrms_qpe_20221231_48hr.nc"
+  rain_ar_20211024:
+    label: "Oct 24, 2021 Atmospheric River"
+    return_period_yr: null
+    duration_hr: 48
+    source: "open_meteo_archive"
+    lat: 37.76
+    lon: -122.43
+    start_date: "2021-10-24"
+    end_date: "2021-10-25"
+    timestep_min: 60
+    hyetograph_file: "data/raw/sf_citywide/sf_hyetograph_ar_20211024_48hr.csv"
+    mrms_product: "MultiSensor_QPE_01H_Pass2"
+    mrms_qpe_file: "data/raw/sf_citywide/sf_mrms_qpe_20211024_48hr.nc"
+  rain_ar_20230109:
+    label: "Jan 9, 2023 Atmospheric River"
+    return_period_yr: null
+    duration_hr: 48
+    source: "open_meteo_archive"
+    lat: 37.76
+    lon: -122.43
+    start_date: "2023-01-09"
+    end_date: "2023-01-10"
+    timestep_min: 60
+    hyetograph_file: "data/raw/sf_citywide/sf_hyetograph_ar_20230109_48hr.csv"
+    mrms_product: "MultiSensor_QPE_01H_Pass2"
+    mrms_qpe_file: "data/raw/sf_citywide/sf_mrms_qpe_20230109_48hr.nc"
+  rain_ar_20240204:
+    label: "Feb 4, 2024 Atmospheric River"
+    return_period_yr: null
+    duration_hr: 48
+    source: "open_meteo_archive"
+    lat: 37.76
+    lon: -122.43
+    start_date: "2024-02-04"
+    end_date: "2024-02-05"
+    timestep_min: 60
+    hyetograph_file: "data/raw/sf_citywide/sf_hyetograph_ar_20240204_48hr.csv"
+    mrms_product: "MultiSensor_QPE_01H_Pass2"
+    mrms_qpe_file: "data/raw/sf_citywide/sf_mrms_qpe_20240204_48hr.nc"
 
 slr_increments:
   slr_0ft:
@@ -148,6 +220,36 @@ slr_increments:
     end_date: "20230101"
     reference_time_utc: "2022-12-31T00:00:00"
     tidal_hydrograph_file: "data/raw/sf_citywide/sf_tide_obs_20221231.csv"
+  tide_ar_20211024:
+    slr_ft: 0.0
+    slr_m: 0.0
+    opc_2024_pathway: "Observed Hindcast (NOAA Multi-Gauge)"
+    opc_2024_horizon: "2021-10-24"
+    tide_method: "noaa_coops"
+    begin_date: "20211024"
+    end_date: "20211025"
+    reference_time_utc: "2021-10-24T00:00:00"
+    tidal_hydrograph_file: "data/raw/sf_citywide/sf_tide_obs_20211024.csv"
+  tide_ar_20230109:
+    slr_ft: 0.0
+    slr_m: 0.0
+    opc_2024_pathway: "Observed Hindcast (NOAA Multi-Gauge)"
+    opc_2024_horizon: "2023-01-09"
+    tide_method: "noaa_coops"
+    begin_date: "20230109"
+    end_date: "20230110"
+    reference_time_utc: "2023-01-09T00:00:00"
+    tidal_hydrograph_file: "data/raw/sf_citywide/sf_tide_obs_20230109.csv"
+  tide_ar_20240204:
+    slr_ft: 0.0
+    slr_m: 0.0
+    opc_2024_pathway: "Observed Hindcast (NOAA Multi-Gauge)"
+    opc_2024_horizon: "2024-02-04"
+    tide_method: "noaa_coops"
+    begin_date: "20240204"
+    end_date: "20240205"
+    reference_time_utc: "2024-02-04T00:00:00"
+    tidal_hydrograph_file: "data/raw/sf_citywide/sf_tide_obs_20240204.csv"
 
 scenarios:
   - id: sf_citywide_100yr_slr0ft
@@ -156,6 +258,15 @@ scenarios:
   - id: sf_citywide_ar_20221231
     rain: rain_ar_20221231
     slr: tide_ar_20221231
+  - id: sf_citywide_ar_20211024
+    rain: rain_ar_20211024
+    slr: tide_ar_20211024
+  - id: sf_citywide_ar_20230109
+    rain: rain_ar_20230109
+    slr: tide_ar_20230109
+  - id: sf_citywide_ar_20240204
+    rain: rain_ar_20240204
+    slr: tide_ar_20240204
   - id: sf_citywide_100yr_slr1ft
     rain: rain_100yr
     slr: slr_1ft
@@ -208,7 +319,13 @@ terrain_prep:
 sfincs_model:
   docker_image: "deltares/sfincs-cpu:latest"
   reference_time_utc: "2020-01-01T00:00:00"
+  rain_source: "mrms"  # "mrms" applies NOAA MRMS 1 km QPE where mrms_qpe_file is set (AR hindcasts); design storms use Atlas 14 CSVs
+  drainage_tier: "tier0"  # Kept at tier0 after v0.4 Phase 2 ablation; tier1a/1b/2 available via config or --drainage-tier
   drainage_rate_mm_hr: 5.0
+  drainage_grid_res_m: 40.0
+  tier1a_base_mm_hr: 2.0
+  tier1a_max_mm_hr: 10.0
+  tier1b_head_full_m: 1.5
   dtout_s: 3600.0
   dtmaxout_s: 86400.0
   alpha: 0.75
@@ -219,6 +336,12 @@ sfincs_model:
   cn_reproj_method: "med"
   outflow_perimeter_bounds: true
   coastal_bound_zmax_m: 0.5
+  quadtree:
+    enabled: false
+    base_resolution_m: 40.0
+    refinement_levels: 2  # 40m -> 20m -> 10m in low-lying urban/coastal corridors
+    refine_zmax_m: 15.0
+    min_polygon_area_m2: 10000.0
 
 validation:
   depth_threshold_m: 0.1524
@@ -228,6 +351,36 @@ validation:
   hindcast_scenario: "sf_citywide_ar_20221231"
   hindcast_depth_file: "data/processed/sf_citywide/sf_citywide_ar_20221231_depth_2m.tif"
   metrics_3way_file: "data/processed/sf_citywide/validation_3way_metrics.json"
+  ensemble_metrics_file: "data/processed/sf_citywide/validation_ensemble_metrics.json"
+  hindcast_ensemble:
+    - id: "ar_20211024"
+      label: "Oct 24, 2021 Atmospheric River"
+      scenario: "sf_citywide_ar_20211024"
+      depth_file: "data/processed/sf_citywide/sf_citywide_ar_20211024_depth_2m.tif"
+      validation_311_reference: "data/raw/sf_citywide/sf_311_20211024_floods.gpkg"
+      validation_311_start_utc: "2021-10-24T00:00:00"
+      validation_311_end_utc: "2021-10-26T00:00:00"
+    - id: "ar_20221231"
+      label: "Dec 31, 2022 Atmospheric River"
+      scenario: "sf_citywide_ar_20221231"
+      depth_file: "data/processed/sf_citywide/sf_citywide_ar_20221231_depth_2m.tif"
+      validation_311_reference: "data/raw/sf_citywide/sf_311_20221231_floods.gpkg"
+      validation_311_start_utc: "2022-12-31T00:00:00"
+      validation_311_end_utc: "2023-01-02T00:00:00"
+    - id: "ar_20230109"
+      label: "Jan 9, 2023 Atmospheric River"
+      scenario: "sf_citywide_ar_20230109"
+      depth_file: "data/processed/sf_citywide/sf_citywide_ar_20230109_depth_2m.tif"
+      validation_311_reference: "data/raw/sf_citywide/sf_311_20230109_floods.gpkg"
+      validation_311_start_utc: "2023-01-09T00:00:00"
+      validation_311_end_utc: "2023-01-11T00:00:00"
+    - id: "ar_20240204"
+      label: "Feb 4, 2024 Atmospheric River"
+      scenario: "sf_citywide_ar_20240204"
+      depth_file: "data/processed/sf_citywide/sf_citywide_ar_20240204_depth_2m.tif"
+      validation_311_reference: "data/raw/sf_citywide/sf_311_20240204_floods.gpkg"
+      validation_311_start_utc: "2024-02-04T00:00:00"
+      validation_311_end_utc: "2024-02-06T00:00:00"
   report_markdown_file: "docs/reports/sf_v02_validation.md"
   sweep_drainage_rates_mm_hr: [5.0]
   sweep_manning_n_paved: [0.030]
@@ -241,5 +394,5 @@ export:
   benchmark_simplify_tolerance_m: 1.0
   floods_311_geojson_file: "data/web_outputs/sf_311_20221231_floods.geojson"
   manifest_file: "data/web_outputs/manifest.json"
-  manifest_version: "0.2"
+  manifest_version: "0.4"
   web_data_url_prefix: "/data"

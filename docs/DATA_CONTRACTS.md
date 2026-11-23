@@ -71,3 +71,4 @@ The web frontend reads this file to populate dropdowns and resolve COG URLs with
 ```
 
 - **v0.2+ Extensions:** Historical hindcasts use string storm IDs (e.g., `"storm": "ar_20221231"`), derived SLR delta rasters use `"metric": "delta"`, and entries may include optional `"opc_2024_pathway"` and `"opc_2024_horizon"` metadata strings for UI display.
+- **v0.4+ Extensions:** Top-level manifest payload may include `"drainage_tier"` (`"tier0"`, `"tier1a"`, `"tier1b"`, or `"tier2"`) indicating the active storm-drain abstraction tier.
