@@ -462,3 +462,104 @@ def test_validate_region_wires_tier_c_and_groundsource_end_to_end(
     assert gs_res["n_groundsource_records"] == 2
     assert gs_res["matched_ensemble_events"] == ["ar_20221231"]
     assert gs_res["holdout_storm_candidates"][0]["start_date"] == "2024-03-01"
+
+
+def test_datasf_tier_c_parsers_merge_and_generic_scorer(tmp_path: Path) -> None:
+    sf_bbox = (-122.52, 37.70, -122.35, 37.82)
+    dem_records = [
+        {
+            "cad_number": "223650034",
+            "received_datetime": "2022-12-31T00:17:51.000",
+            "call_type_final_desc": "TRAFFIC HAZARD",
+            "intersection_point": {"type": "Point", "coordinates": [-122.400, 37.749]},
+        },
+        {
+            "cad_number": "223650034",  # duplicate cad_number -> deduped
+            "received_datetime": "2022-12-31T00:18:00.000",
+            "call_type_final_desc": "TRAFFIC HAZARD",
+            "intersection_point": {"type": "Point", "coordinates": [-122.400, 37.749]},
+        },
+        {
+            "cad_number": "OUT-BBOX",
+            "received_datetime": "2022-12-31T01:00:00.000",
+            "call_type_final_desc": "TRAFFIC HAZARD",
+            "intersection_point": {"type": "Point", "coordinates": [-118.25, 34.05]},
+        },
+    ]
+    sffd_records = [
+        {
+            "incident_number": "22169959",
+            "received_dttm": "2022-12-31T03:48:12.000",
+            "call_type": "Water Rescue",
+            "case_location": {"type": "Point", "coordinates": [-122.410, 37.740]},
+        },
+        {
+            "incident_number": "22169959",  # second unit dispatched to same incident -> deduped
+            "received_dttm": "2022-12-31T03:49:00.000",
+            "call_type": "Water Rescue",
+            "case_location": {"type": "Point", "coordinates": [-122.410, 37.740]},
+        },
+    ]
+
+    dem_gdf = _FETCH.parse_datasf_dem_traffic_hazards(dem_records, bbox_wgs84=sf_bbox)
+    sffd_gdf = _FETCH.parse_datasf_sffd_water_rescues(sffd_records, bbox_wgs84=sf_bbox)
+    assert len(dem_gdf) == 1
+    assert dem_gdf.iloc[0]["source"] == "datasf_dem_2zdj"
+    assert len(sffd_gdf) == 1
+    assert sffd_gdf.iloc[0]["source"] == "datasf_sffd_nuek"
+
+    merged_utm = _FETCH.merge_standardized_tier_c_records(
+        [dem_gdf, sffd_gdf], target_crs="EPSG:26910"
+    )
+    assert str(merged_utm.crs) == "EPSG:26910"
+    assert list(merged_utm.columns) == [
+        "record_id",
+        "timestamp",
+        "category",
+        "source",
+        "geometry",
+    ]
+    assert len(merged_utm) == 2
+
+    # Verify generic scorer works on any standardized GeoPackage with source/category columns
+    gpkg_path = tmp_path / "standardized_tier_c.gpkg"
+    xmin, ymax = 550000.0, 4177000.0
+    tf = from_origin(xmin, ymax, 2.0, 2.0)
+    valid_land = np.ones((100, 100), dtype=bool)
+    depth_m = np.zeros((100, 100), dtype=np.float32)
+    depth_m[45:55, 45:55] = 0.40
+
+    std_pts = gpd.GeoDataFrame(
+        [
+            {
+                "record_id": "1",
+                "timestamp": "2022-12-31T00:17:51",
+                "category": "TRAFFIC HAZARD",
+                "source": "datasf_dem_2zdj",
+                "geometry": Point(550100.0, 4176900.0),
+            },
+            {
+                "record_id": "2",
+                "timestamp": "2022-12-31T03:48:12",
+                "category": "Water Rescue",
+                "source": "datasf_sffd_nuek",
+                "geometry": Point(550105.0, 4176902.0),
+            },
+        ],
+        crs="EPSG:26910",
+    )
+    std_pts.to_file(gpkg_path, driver="GPKG")
+
+    res = _VAL.evaluate_event_road_closures(
+        road_closures_file=gpkg_path,
+        roads_file=None,
+        ar_depth_m=depth_m,
+        valid_land_mask=valid_land,
+        transform=tf,
+        project_crs="EPSG:26910",
+    )
+    assert res is not None
+    assert res["valid_land_points"] == 2
+    assert res["by_source_counts"] == {"datasf_dem_2zdj": 1, "datasf_sffd_nuek": 1}
+    assert res["by_category_counts"] == {"TRAFFIC HAZARD": 1, "Water Rescue": 1}
+    assert res["by_buffer"][0]["thresholds"]["0.05m"]["capture_rate"] == 1.0

@@ -1329,6 +1329,16 @@ def compute_road_closure_metrics(
                 "threshold_m": primary_thr,
             }
 
+    by_source_counts: dict[str, int] = {}
+    if "source" in filtered.columns:
+        src_vals = filtered["source"].fillna("unknown").astype(str)
+        by_source_counts = {k: int(v) for k, v in src_vals.value_counts().items()}
+
+    by_category_counts: dict[str, int] = {}
+    if "category" in filtered.columns:
+        cat_vals = filtered["category"].fillna("unknown").astype(str)
+        by_category_counts = {k: int(v) for k, v in cat_vals.value_counts().items()}
+
     return {
         "valid_land_points": n_valid_pts,
         "snapped_points": int(n_snapped),
@@ -1336,6 +1346,8 @@ def compute_road_closure_metrics(
         "control_type": control_type,
         "by_buffer": by_buffer,
         "by_corridor": by_corridor,
+        "by_source_counts": by_source_counts,
+        "by_category_counts": by_category_counts,
     }
 
 

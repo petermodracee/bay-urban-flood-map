@@ -48,6 +48,8 @@ NOAA_COOPS_URL = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
 OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 CALTRANS_D4_LCS_URL = "https://cwwp2.dot.ca.gov/data/d4/lcs/lcsStatusD04.json"
 CALTRANS_D4_CHP_URL = "https://cwwp2.dot.ca.gov/data/d4/chp/chpIncidentsD04.json"
+DATASF_DEM_CALLS_URL = "https://data.sf.gov/resource/2zdj-bwza.json"
+DATASF_SFFD_CALLS_URL = "https://data.sf.gov/resource/nuek-vuh3.json"
 OPENFEMA_NFIP_CLAIMS_URL = "https://www.fema.gov/api/open/v3/NfipClaims"
 TIGERWEB_TRACTS_URL = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/0/query"
 GROUNDSOURCE_PARQUET_URL = (
@@ -1709,37 +1711,244 @@ def _fetch_ensemble_311(
         )
 
 
+def _extract_geojson_point_lonlat(geom_obj: Any) -> tuple[float, float] | None:
+    """Extract (lon, lat) from a GeoJSON Point dict."""
+    if not isinstance(geom_obj, Mapping):
+        return None
+    coords = geom_obj.get("coordinates")
+    if not isinstance(coords, Sequence) or len(coords) < 2:
+        return None
+    try:
+        lon, lat = float(coords[0]), float(coords[1])
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(lon) and math.isfinite(lat)):
+        return None
+    return lon, lat
+
+
+def _parse_datasf_point_records(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    id_field: str,
+    timestamp_field: str,
+    category_field: str,
+    default_category: str,
+    geom_field: str,
+    source_name: str,
+    bbox_wgs84: Sequence[float] | None = None,
+) -> gpd.GeoDataFrame:
+    """Parse DataSF Socrata point records into standardized Tier C schema, deduped by id_field."""
+    parsed_rows: list[dict[str, Any]] = []
+    geometries: list[Point] = []
+    seen_ids: set[str] = set()
+    xmin = ymin = xmax = ymax = 0.0
+    if bbox_wgs84 is not None:
+        xmin, ymin, xmax, ymax = (float(v) for v in bbox_wgs84)
+
+    for rec in records:
+        if not isinstance(rec, Mapping):
+            continue
+        rec_id = str(rec.get(id_field) or "").strip()
+        if rec_id:
+            if rec_id in seen_ids:
+                continue
+            seen_ids.add(rec_id)
+        lonlat = _extract_geojson_point_lonlat(rec.get(geom_field))
+        if lonlat is None:
+            continue
+        lon, lat = lonlat
+        if bbox_wgs84 is not None and not (xmin <= lon <= xmax and ymin <= lat <= ymax):
+            continue
+        parsed_rows.append(
+            {
+                "record_id": rec_id or None,
+                "timestamp": str(rec.get(timestamp_field) or "").strip(),
+                "category": str(rec.get(category_field) or default_category).strip(),
+                "source": source_name,
+            }
+        )
+        geometries.append(Point(lon, lat))
+
+    cols = ["record_id", "timestamp", "category", "source"]
+    if not parsed_rows:
+        return gpd.GeoDataFrame(
+            {c: [] for c in cols},
+            geometry=gpd.GeoSeries([], crs="EPSG:4326"),
+            crs="EPSG:4326",
+        )
+    return gpd.GeoDataFrame(parsed_rows, geometry=geometries, crs="EPSG:4326")
+
+
+def parse_datasf_dem_traffic_hazards(
+    records: Sequence[Mapping[str, Any]],
+    bbox_wgs84: Sequence[float] | None = None,
+) -> gpd.GeoDataFrame:
+    """Parse SF DEM Dispatched Calls (2zdj-bwza) TRAFFIC HAZARD records."""
+    return _parse_datasf_point_records(
+        records,
+        id_field="cad_number",
+        timestamp_field="received_datetime",
+        category_field="call_type_final_desc",
+        default_category="TRAFFIC HAZARD",
+        geom_field="intersection_point",
+        source_name="datasf_dem_2zdj",
+        bbox_wgs84=bbox_wgs84,
+    )
+
+
+def parse_datasf_sffd_water_rescues(
+    records: Sequence[Mapping[str, Any]],
+    bbox_wgs84: Sequence[float] | None = None,
+) -> gpd.GeoDataFrame:
+    """Parse SFFD Fire Calls (nuek-vuh3) Water Rescue records, deduplicated by incident_number."""
+    return _parse_datasf_point_records(
+        records,
+        id_field="incident_number",
+        timestamp_field="received_dttm",
+        category_field="call_type",
+        default_category="Water Rescue",
+        geom_field="case_location",
+        source_name="datasf_sffd_nuek",
+        bbox_wgs84=bbox_wgs84,
+    )
+
+
+def merge_standardized_tier_c_records(
+    frames: Sequence[gpd.GeoDataFrame],
+    target_crs: str = "EPSG:26910",
+) -> gpd.GeoDataFrame:
+    """Concatenate standardized Tier C point GeoDataFrames and project to target_crs."""
+    cols = ["record_id", "timestamp", "category", "source"]
+    non_empty: list[gpd.GeoDataFrame] = []
+    for frame in frames:
+        if frame is None or frame.empty:
+            continue
+        f_copy = frame.copy()
+        if f_copy.crs is None:
+            f_copy = f_copy.set_crs("EPSG:4326")
+        if str(f_copy.crs) != "EPSG:4326":
+            f_copy = f_copy.to_crs("EPSG:4326")
+        for col in cols:
+            if col not in f_copy.columns:
+                f_copy[col] = None
+        non_empty.append(f_copy[[*cols, "geometry"]])
+
+    if not non_empty:
+        return gpd.GeoDataFrame(
+            {c: [] for c in cols},
+            geometry=gpd.GeoSeries([], crs=target_crs),
+            crs=target_crs,
+        )
+    merged = gpd.GeoDataFrame(
+        pd.concat(non_empty, ignore_index=True), geometry="geometry", crs="EPSG:4326"
+    )
+    return (
+        merged.to_crs(target_crs)
+        if CRS.from_user_input(merged.crs) != CRS.from_user_input(target_crs)
+        else merged
+    )
+
+
+def _fetch_socrata_pages(
+    base_url: str,
+    where_clause: str,
+    page_size: int = 5000,
+) -> list[dict[str, Any]]:
+    """Paginate a DataSF Socrata JSON endpoint with $where, $limit, and $offset."""
+    all_rows: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        resp = requests.get(
+            base_url,
+            params={"$where": where_clause, "$limit": page_size, "$offset": offset},
+            timeout=DEFAULT_HTTP_TIMEOUT_S,
+        )
+        resp.raise_for_status()
+        batch = resp.json()
+        if not batch:
+            break
+        all_rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+    return all_rows
+
+
 def _fetch_ensemble_road_closures(
     cfg: Mapping[str, Any],
     buffered_wgs84_bbox: Sequence[float],
+    project_crs: str = "EPSG:26910",
     force: bool = False,
 ) -> None:
-    """Fetch optional Tier C road-closure feeds when road_closures_url is configured."""
+    """Fetch optional Tier C roadway/emergency disruption feeds per ensemble event."""
     ensemble_cfg = cfg.get("validation", {}).get("hindcast_ensemble") or []
     for ev in ensemble_cfg:
-        url = ev.get("road_closures_url")
         out_raw = ev.get("road_closures_file")
-        if not url or not out_raw:
+        if not out_raw:
             continue
+        provider = str(ev.get("road_closures_provider") or "").strip().lower()
+        url = ev.get("road_closures_url")
+        if not provider and not url:
+            continue
+
         out_path = Path(out_raw)
         if out_path.exists() and not force:
             print(f"[00_fetch_data] Cached Tier C road closures -> {out_path}")
             continue
-        resp = requests.get(str(url), timeout=DEFAULT_HTTP_TIMEOUT_S)
-        resp.raise_for_status()
-        payload = resp.json()
-        fmt = str(ev.get("road_closures_format") or "").lower()
-        if fmt == "511" or ("events" in payload and "data" not in payload):
-            gdf = parse_511_events_json(
-                payload, bbox_wgs84=buffered_wgs84_bbox, flood_only=True
+
+        if provider == "datasf_emergency":
+            start_utc = str(
+                ev.get("road_closures_start_utc") or ev["validation_311_start_utc"]
+            )
+            end_utc = str(
+                ev.get("road_closures_end_utc") or ev["validation_311_end_utc"]
+            )
+            dem_rows = _fetch_socrata_pages(
+                DATASF_DEM_CALLS_URL,
+                (
+                    "call_type_final_desc = 'TRAFFIC HAZARD' "
+                    f"AND received_datetime between '{start_utc}' and '{end_utc}'"
+                ),
+            )
+            sffd_rows = _fetch_socrata_pages(
+                DATASF_SFFD_CALLS_URL,
+                (
+                    "call_type = 'Water Rescue' "
+                    f"AND received_dttm between '{start_utc}' and '{end_utc}'"
+                ),
+            )
+            dem_gdf = parse_datasf_dem_traffic_hazards(
+                dem_rows, bbox_wgs84=buffered_wgs84_bbox
+            )
+            sffd_gdf = parse_datasf_sffd_water_rescues(
+                sffd_rows, bbox_wgs84=buffered_wgs84_bbox
+            )
+            gdf = merge_standardized_tier_c_records(
+                [dem_gdf, sffd_gdf], target_crs=project_crs
             )
         else:
-            gdf = parse_caltrans_lcs_json(
-                payload, bbox_wgs84=buffered_wgs84_bbox, flood_only=True
-            )
+            resp = requests.get(str(url), timeout=DEFAULT_HTTP_TIMEOUT_S)
+            resp.raise_for_status()
+            payload = resp.json()
+            fmt = str(ev.get("road_closures_format") or "").lower()
+            if fmt == "511" or ("events" in payload and "data" not in payload):
+                raw_gdf = parse_511_events_json(
+                    payload, bbox_wgs84=buffered_wgs84_bbox, flood_only=True
+                )
+            else:
+                raw_gdf = parse_caltrans_lcs_json(
+                    payload, bbox_wgs84=buffered_wgs84_bbox, flood_only=True
+                )
+            if "event_id" in raw_gdf.columns and "record_id" not in raw_gdf.columns:
+                raw_gdf = raw_gdf.rename(columns={"event_id": "record_id"})
+            if "description" in raw_gdf.columns and "category" not in raw_gdf.columns:
+                raw_gdf = raw_gdf.rename(columns={"description": "category"})
+            gdf = merge_standardized_tier_c_records([raw_gdf], target_crs=project_crs)
+
         out_path.parent.mkdir(parents=True, exist_ok=True)
         gdf.to_file(out_path, driver="GPKG")
-        print(f"[00_fetch_data] Saved {len(gdf)} Tier C road closures -> {out_path}")
+        print(f"[00_fetch_data] Saved {len(gdf)} Tier C disruptions -> {out_path}")
 
 
 def _read_parquet_clipped(
@@ -1993,6 +2202,7 @@ def fetch_data(config_path: Path, force: bool = False) -> None:
     _fetch_ensemble_road_closures(
         cfg=cfg,
         buffered_wgs84_bbox=buffered_wgs84_bbox,
+        project_crs=project_crs,
         force=force,
     )
     _fetch_groundsource(

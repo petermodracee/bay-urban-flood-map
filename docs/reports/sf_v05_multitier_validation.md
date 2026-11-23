@@ -12,7 +12,7 @@
 | --- | --- | --- | --- |
 | **Tier A: Physical Gauges & HWMs** | NOAA CO-OPS `9414290` (Presidio), USGS NWIS & STN HWMs (`Grimley et al., 2025`; `Nederhoff et al., 2021`) | Live NOAA CO-OPS scored across 4 ARs; USGS NWIS/STN (`NGVD29 -> NAVD88`) offline-tested | **4-AR Presidio `9414290`:** `RMSE = 0.0013–0.0019 m`, `MAE = 0.0010–0.0015 m`, `Bias = +0.0007 to +0.0013 m`, peak timing error `0.0 min`, `NSE = 1.0` |
 | **Tier B: Hydraulic Benchmarks** | SFPUC 100-Yr Storm Flood Risk Map (`>= 0.1524 m` / `6 in`; `Sanders et al., 2023`; `Schubert, Mach, & Sanders, 2024`) | Pluggable `BenchmarkSpec` interface implemented & offline-tested | **Citywide (`v0.4` frozen / `v0.5` run):** `HR = 0.3887 / 0.3900`, `FAR = 0.7086 / 0.7189`, `CSI = 0.1998 / 0.1953` |
-| **Tier C: Roadway Closures** | Caltrans D4 LCS / CHP / 511 SF Bay (`Praharaj et al., 2021`) | Parsers (`00_fetch_data.py`) & road-snapped `25 m / 50 m` + road-control lift / `ROC-AUC` scorer (`03_validate_sf.py`) offline-tested | `road_closures_file: null` in `configs/sf_citywide.yml` (live real-time feeds lack free historical backfill; ready for live AR capture) |
+| **Tier C: Roadway Closures** | SF DEM `TRAFFIC HAZARD` (`2zdj-bwza`) + deduplicated SFFD `Water Rescue` (`nuek-vuh3`); generic scorer (`Praharaj et al., 2021`) | Pluggable `datasf_emergency` provider & generic road-snapped `25 m / 50 m` + road-control lift / `ROC-AUC` scorer scored across 4 ARs (`260` pts) | **4-AR `25 m` mean:** `33.22%` capture, `1.140x` lift, `ROC-AUC = 0.5554` (`50 m`: `57.80%` cap, `1.074x` lift, `0.5612` AUC); **3-AR cal mean (`25 m`):** `43.95%` cap, `1.338x` lift, `0.5755` AUC |
 | **Tier D: Civic 311 + Groundsource** | DataSF 311 (`1,535` pts across 4 ARs; `Agonafir et al., 2022`; `Lerma et al., 2025`) + Google Research Groundsource (`CC BY 4.0`, `area_km2 <= 25`) | 4-AR MRMS ensemble & live SF Groundsource (`332` filtered records / `41` sub-basins) scored | **4-AR MRMS `25 m` mean:** `36.89%` capture, `1.249x` lift, `ROC-AUC = 0.5886` (`50 m`: `57.24%` cap, `1.076x` lift, `0.5791` AUC); **Groundsource:** `1.000` presence HR, `0.9024` accuracy (`37/37` GS-present sub-basins matched) |
 | **Tier E: Structural Loss (NFIP)** | OpenFEMA NFIP Redacted Claims (`v3/NfipClaims`) vs. modeled building exposure (`Wing et al., 2020`) | Live OpenFEMA county `06075` + TIGERweb tracts (`259` tracts, `92` claims, `\$1.54M` paid) scored | **`claim_count` vs. `exposed_buildings`:** $\rho = 0.1087$ ($p = 0.0807$); **`claim_count` vs. `flooded_land_area_m2`:** $\rho = 0.2289$ ($p = 0.0002$) |
 
@@ -47,7 +47,20 @@ Citywide land (`>= 0.5 m NAVD88`, `NLCD != 11`) achieves `HR = 0.3887`, `FAR = 0
 | **Marina / Crissy Field** | `0.3124` | `0.9024` | `0.0804` |
 | **Visitacion Valley** | `0.0760` | `0.9776` | `0.0176` |
 
-### 2.3 Tier D: 4-AR MRMS Hindcast Ensemble vs. DataSF 311 (`1,535` Valid-Land Points)
+### 2.3 Tier C: Roadway & Emergency Disruption Validation (DataSF DEM + SFFD, `260` Points)
+
+Because Caltrans QuickMap/CHP CAD are live-only and Caltrans PeMS downloads are unavailable during its portal upgrade, SF Tier C is scored via the pluggable `datasf_emergency` provider (`data.sf.gov`: DEM `TRAFFIC HAZARD` `2zdj-bwza` + SFFD `Water Rescue` `nuek-vuh3` deduplicated by `incident_number`) against `2,000` random road-network controls (`>= 0.05 m` depth threshold). Note that DEM `TRAFFIC HAZARD` includes wind and debris hazards alongside flooding, so **lift over random road controls** is the key signal:
+
+| Event | Total Pts (`DEM / SFFD`) | `25 m` Cap / Lift / `AUC` | `50 m` Cap / Lift / `AUC` |
+| --- | ---: | ---: | ---: |
+| `ar_20211024` | `64` (`63 / 1`) | `51.56% / 1.360x / 0.5733` | `78.12% / 1.126x / 0.5591` |
+| `ar_20221231` | `66` (`61 / 5`) | `56.06% / 1.568x / 0.6362` | `83.33% / 1.246x / 0.6412` |
+| `ar_20230109` | `33` (`33 / 0`) | `24.24% / 1.087x / 0.5171` | `66.67% / 1.179x / 0.5545` |
+| `ar_20240204` | `97` (`97 / 0`) | `1.03% / 0.543x / 0.4950` | `3.09% / 0.745x / 0.4899` |
+| **Calibration 3-AR Mean** | **163** (`157 / 6`) | **`43.95% / 1.338x / 0.5755`** | **`76.04% / 1.184x / 0.5849`** |
+| **4-AR Ensemble Mean** | **260** (`254 / 6`) | **`33.22% / 1.140x / 0.5554`** | **`57.80% / 1.074x / 0.5612`** |
+
+### 2.4 Tier D: 4-AR MRMS Hindcast Ensemble vs. DataSF 311 (`1,535` Valid-Land Points)
 
 Per-event and ensemble-mean scores (`>= 0.05 m` depth threshold against `2,000` random valid-land controls):
 
@@ -66,7 +79,7 @@ From `517` SF-clipped Groundsource records (`332` retained after `area_km2 <= 25
 - **Matched Ensemble Events:** All `4` modeled ARs (`ar_20211024`, `ar_20221231`, `ar_20230109`, `ar_20240204`) appear in Groundsource.
 - **Top Untouched Holdout Candidates Outside the 4-AR Set:** `2024-11-22` to `2024-11-23` (`8` records, `25.897 km^2` — recent MRMS-era AR) and `2019-12-07` to `2019-12-08` (`12` records, `40.519 km^2`).
 
-### 2.4 Tier E: OpenFEMA NFIP Structural Loss Cross-Check (`sf_citywide_100yr_slr0ft`)
+### 2.5 Tier E: OpenFEMA NFIP Structural Loss Cross-Check (`sf_citywide_100yr_slr0ft`)
 
 Evaluated across `259` San Francisco census tracts (`44` tracts with claims, `92` total claims, `\$1,536,935.05` total paid):
 

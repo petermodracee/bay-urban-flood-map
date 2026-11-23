@@ -26,7 +26,9 @@ This registry tracks all external geospatial datasets, climate/tide feeds, basem
 | Dataset | Provider / Source | License / Terms | Usage & Attribution Notes |
 | :--- | :--- | :--- | :--- |
 | **USGS NWIS & STN High-Water Marks** | USGS Water Data / Flood Event Viewer | **Public Domain** (U.S. Government work) | Credit *U.S. Geological Survey*. Convert any `NGVD29` records to `NAVD88` meters. |
-| **Caltrans QuickMap / CHP Incident Logs / 511 SF Bay** | Caltrans / CHP / MTC 511 | **Public / CA Open Data** | Open agency feeds for highway & underpass flood closures. |
+| **Caltrans QuickMap / CHP Incident Logs / 511 SF Bay** | Caltrans / CHP / MTC 511 | **Public / CA Open Data** | Open agency feeds for highway & underpass flood closures (live-only; PeMS historical archive pending portal upgrade). |
+| **SF DEM Dispatched Calls — Closed (`2zdj-bwza`)** | City & County of San Francisco / DataSF (`data.sf.gov/resource/2zdj-bwza.json`) | **Open Data Commons PDDL** / DataSF Terms of Use | Filtered to `call_type_final_desc = 'TRAFFIC HAZARD'` within AR hindcast windows (`intersection_point`, `cad_number`); includes wind/debris hazards alongside flooding. |
+| **SFFD Fire Calls (`nuek-vuh3`)** | City & County of San Francisco / DataSF (`data.sf.gov/resource/nuek-vuh3.json`) | **Open Data Commons PDDL** / DataSF Terms of Use | Filtered to `call_type = 'Water Rescue'` within AR hindcast windows (`case_location`), deduplicated by `incident_number`. |
 | **Google Research Groundsource** | Google Research (Zenodo / GEE GeoParquet) | **CC BY 4.0** | Credit *Google Research Groundsource (CC BY 4.0)*. Filter `area_km2 <= 25` for storm discovery & neighborhood presence. |
 | **OpenFEMA NFIP Redacted Claims (`FimaNfipClaims`)** | FEMA OpenFEMA API | **Public Domain** (U.S. Government work) | Tract / `0.1°` privacy-aggregated; use only for tract-level loss correlation (`v0.5+`). |
 | **Copernicus Sentinel-1 SAR** | ESA / Copernicus Data Space | **Copernicus Open Access** | Credit *Copernicus Sentinel data*. Flat Bay-margin/floodplain extent only (`v0.5+`). |
