@@ -6,7 +6,7 @@
 
 | Domain | Role in v0.5 | Key Jurisdictions & Gauges | Grid & Datum |
 | :--- | --- | --- | --- |
-| **`sf_citywide`** | **Phase 1 Validation Calibration Domain:** Verify Tiers A–E against frozen v0.4 MRMS 4-AR ensemble + `100-yr` design storm before introducing new watershed physics | SFPUC, DataSF 311, NOAA `9414290` (Presidio), Caltrans US-101/I-280, OpenFEMA NFIP | `EPSG:26910` / `NAVD88`, `20 m` grid / `2 m` subgrid |
+| **`sf_citywide`** | **Phase 1 Validation Calibration Domain:** Verify Tiers A–E against frozen v0.4 MRMS 4-AR ensemble (`1,535` 311 pts; `25 m` mean `36.95%` capture, `1.251x` lift, `0.5888` `ROC-AUC`) + `100-yr` design storm (`SFPUC CSI = 0.1998`) before introducing new watershed physics | SFPUC, DataSF 311, NOAA `9414290` (Presidio), Caltrans US-101/I-280, OpenFEMA NFIP | `EPSG:26910` / `NAVD88`, `20 m` grid / `2 m` subgrid |
 | **`sfc_east_palo_alto`** | **Phases 2–4 Expansion Pilot:** San Francisquito Creek / East Palo Alto / Palo Alto flatland Bay-margin separate-MS4 watershed | SFCJPA, Valley Water (Santa Clara), OneShoreline (San Mateo), NOAA `9414523` (Redwood City), USGS `11164500` (San Francisquito Creek at Stanford), US-101 corridor | `EPSG:26910` / `NAVD88`, `20 m` grid / `2 m` subgrid |
 
 ---
