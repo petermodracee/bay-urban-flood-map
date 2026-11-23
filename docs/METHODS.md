@@ -1,6 +1,6 @@
 # METHODS.md — Scientific Methodology & Reference Formulation
 
-This document is the living scientific methodology reference for `bay-urban-flood-map`. It explains what each peer-reviewed source contributes to the pipeline, documents the exact formulations and parameters used in the frozen **v0.2** San Francisco baseline and planned **v0.4** upgrades, and distinguishes mitigable model limitations from structural 2D-modeling boundaries.
+This document is the living scientific methodology reference for `bay-urban-flood-map`. It explains what each peer-reviewed source contributes to the pipeline, documents the exact formulations and parameters used in the frozen **v0.2** San Francisco baseline and **v0.4** upgrades, and distinguishes mitigable model limitations from structural 2D-modeling boundaries. For the 5-tier multi-source validation protocol (`v0.5+`), see [`docs/VALIDATION_SPEC.md`](VALIDATION_SPEC.md).
 
 For operational pipeline contracts and CLI stages, see [`docs/MODEL_SPEC.md`](MODEL_SPEC.md). For upstream data licenses and provenance, see [`docs/DATA_SOURCES.md`](DATA_SOURCES.md).
 
@@ -21,7 +21,7 @@ Each component of the pipeline is derived from—or benchmarked against—specif
 | **Urban building representation** | `Schubert & Sanders (2012)` | Building block-out (`+3.0 m` elevation bump + elevated roughness) to route runoff along street corridors rather than inside buildings | Implemented (`01_prep_terrain.py`) |
 | **Upscaled 2D urban raster concepts** | `Sanders & Schubert (2019)` | Fine-scale urban storage/conveyance retention and simplified drainage abstraction concepts for fast regional raster inundation | Conceptual design reference |
 | **2D urban drainage proxy** | `Bates et al. (2021)` | Parameterizing storm-drain removal in 2D from **NLCD urbanization/imperviousness** instead of unobtainable 1D pipe-invert GIS | Implemented (`--drainage-tier tier1a`, **v0.4**); SF default remains Tier 0 (`5.0 mm/hr`) after ablation |
-| **Tide-locked outfall heuristic** | *Experimental extension* | Attenuating Tier 1a 2D drainage capacity as `(DEM - tide(t)) -> 0` (excluding pumped polders) | Implemented (`--drainage-tier tier1b`, **v0.4**); opt-in for **v0.5** MS4s |
+| **Tide-locked outfall heuristic** | *Experimental extension* | Attenuating Tier 1a 2D drainage capacity as `(DEM - tide(t)) -> 0` (excluding pumped polders) | Implemented (`--drainage-tier tier1b`, **v0.4**); opt-in for **v0.7+** MS4s |
 | **SF Bay tidal amplification** | `Nederhoff et al. (2021)` | Spatially varying estuarine water levels (tidal amplification toward South Bay + surge) via multi-gauge NOAA CO-OPS interpolation | **Retained (`v0.4`)** 4-gauge `sfincs.bnd`/`sfincs.bzs` (`9414290`, `9414750`, `9414863`, `9414523`) |
 | **Gridded radar-gauge QPE** | NOAA MRMS (`MultiSensor_QPE_01H_Pass2`) | `1 km` hourly gauge-corrected radar precipitation (`netamprfile`) resolving convective AR rain bands and orographic gradients | **Retained (`v0.4`)** for historical AR hindcasts (`rain_source: "mrms"`) |
 | **311 crowdsourced validation** | `Agonafir et al. (2022)`; `Lerma et al. (2025)` | Using geo-located municipal 311 flood complaints with buffer capture, control sampling, and `ROC-AUC` to validate urban pluvial models | Implemented (`03_validate_sf.py`, 4-AR ensemble in **v0.4**) |
@@ -79,7 +79,7 @@ Because complete 1D underground storm-pipe invert elevations and pump curves do 
 | **Tier 0** *(v0.1 / v0.2 frozen baseline)* | Calibrated uniform subtraction (`5.0 mm/hr`) | None | Scalar subtraction on `sfincs.prp` (`max(0, rain - 5.0)`) + SCS CN |
 | **Tier 1a** *(v0.4, `Bates et al., 2021`)* | Urban-density scaled 2D drainage abstraction | NLCD imperviousness + land cover | 2D gridded net rainfall (`netamprfile`) + SCS CN |
 | **Tier 1b** *(v0.4, experimental extension)* | Dynamic tide-coupled gravity-outfall attenuation | DEM + NOAA CO-OPS tide + pumped-polder flags | Attenuates Tier 1a capacity in `netamprfile` as `(DEM - tide(t)) -> 0` |
-| **Tier 2** *(v0.5+ optional enrichment)* | Local refinement where open municipal storm-drain / pump GIS exists | Optional `domain.storm_drain_source` (`null` by default) | Locally refines Tier 1 grid + SFINCS `pump` / `culvert` structures |
+| **Tier 2** *(v0.7+ optional enrichment)* | Local refinement where open municipal storm-drain / pump GIS exists | Optional `domain.storm_drain_source` (`null` by default) | Locally refines Tier 1 grid + SFINCS `pump` / `culvert` structures |
 
 ---
 
@@ -110,11 +110,11 @@ Every upgrade is evaluated against two complementary datasets in `pipeline/03_va
 
 ## 8. Known Limitations: Mitigable vs. Structural
 
-### Mitigable in Planned Milestones (`v0.4` / `v0.5`)
-- **Flat-street nuisance ponding (Tier 0 uniform drainage):** Uniform `5.0 mm/hr` over-ponds flat residential streets (`48.7%` of cells with slope `< 2%` reach `>= 0.05 m` in the Dec 2022 AR), while raising uniform drainage starves downstream bowls (`CSI` drops `0.1999 -> 0.1483`). *Mitigation (`v0.4`):* **Tier 1a/1b** spatially varying 2D drainage (`Bates et al., 2021`) lets dense/upland corridors drain faster without starving low-lying bowls.
+### Mitigable in Planned Milestones (`v0.4`–`v0.7`)
+- **Flat-street nuisance ponding (Tier 0 uniform drainage):** Uniform `5.0 mm/hr` over-ponds flat residential streets (`48.7%` of cells with slope `< 2%` reach `>= 0.05 m` in the Dec 2022 AR), while raising uniform drainage starves downstream bowls (`CSI` drops `0.1999 -> 0.1483`). *Mitigation (`v0.4` / `v0.6`):* **Tier 1a/1b** spatially varying 2D drainage (`Bates et al., 2021`) lets dense/upland corridors drain faster without starving low-lying bowls when mean-rate-matched.
 - **`20 m` sub-cell street smoothing:** Narrow alleys and curb-gutter channels (`< 20 m`) are averaged within computational cells, limiting exact `0 m` point accuracy (`17.2%`). *Mitigation (`v0.4`):* **SFINCS quadtree refinement** (`10 m` cells in low-lying urban/coastal corridors, `40–80 m` on steep uplands; `Leijnse et al., 2021`).
-- **Single-storm & 311 reporting bias:** Single-event validation and citizen 311 reporting biases (demographics, clogged catch basins, lateral backups; `Agonafir et al., 2022`). *Mitigation (`v0.4`/`v0.5`):* **3–4 AR hindcast ensemble** (`Eilander et al., 2023`) paired with CHP closures and USGS stream gauges.
-- **Pumped polders:** Tier 1b `(DEM - tide)` lock-up is physically invalid inside pump-drained polders (e.g., Foster City, Alameda/Oakland low-lying basins). *Mitigation (`v0.5`):* Explicit polder masks and SFINCS `pump` structures.
+- **Single-storm & 311 reporting bias:** Single-event validation and citizen 311 reporting biases (demographics, clogged catch basins, lateral backups; `Agonafir et al., 2022`). *Mitigation (`v0.4` / `v0.5`):* **4-AR MRMS hindcast ensemble** (`Eilander et al., 2023`) paired with 5-tier open validation (NOAA/USGS gauges, Caltrans/CHP closures, Groundsource, OpenFEMA NFIP; [`docs/VALIDATION_SPEC.md`](VALIDATION_SPEC.md)).
+- **Pumped polders:** Tier 1b `(DEM - tide)` lock-up is physically invalid inside pump-drained polders (e.g., East Palo Alto/Foster City, Alameda/Oakland low-lying basins). *Mitigation (`v0.7`):* Explicit `polder_mask_source` exclusions and SFINCS `pump` structures.
 - **Pacific Ocean wave runup:** Still-water tide gauges (`sfincs.bnd`/`sfincs.bzs`) omit Ocean Beach wave setup/runup (`Nederhoff et al., 2021`). *Mitigation (future):* Optional coupling with SFINCS `SnapWave` along open-coast Pacific boundaries.
 
 ### Structural 2D-Model Boundaries (No Practical Bay-Wide Fix)

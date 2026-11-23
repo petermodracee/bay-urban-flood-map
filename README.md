@@ -4,7 +4,7 @@ An open-source urban stormwater and compound sea level rise (SLR) flood model an
 
 **Live Viewer:** https://bay-urban-flood-map.pages.dev
 
-**Status:** `v0.4` SF literature-backed methodology upgrades & controlled ablation complete ([`docs/reports/sf_v02_vs_v04_ablation.md`](docs/reports/sf_v02_vs_v04_ablation.md)) — 4-gauge SF Bay tides, NOAA MRMS 1 km gridded QPE (`1,535` 311 points across 4 historical ARs), opt-in Tier 1a/1b/2 2D drainage (`netamprfile`), and opt-in `40 m → 10 m` quadtree refinement (`hydromt_sfincs 2.0.0`), alongside the live `v0.3` Cloudflare R2 + Pages viewer. Next up: `v0.5` East/South Bay separate-MS4 expansion.
+**Status:** `v0.4` SF literature-backed methodology upgrades & controlled ablation complete ([`docs/reports/sf_v02_vs_v04_ablation.md`](docs/reports/sf_v02_vs_v04_ablation.md)) — 4-gauge SF Bay tides, NOAA MRMS 1 km gridded QPE (`1,535` 311 points across 4 historical ARs), opt-in Tier 1a/1b/2 2D drainage (`netamprfile`), and opt-in `40 m → 10 m` quadtree refinement (`hydromt_sfincs 2.0.0`), alongside the live `v0.3` Cloudflare R2 + Pages viewer. Next up: `v0.5` 5-tier open validation layer (SF baseline), `v0.6` SF multi-tier calibration audit, and `v0.7` San Francisquito Creek / East Palo Alto separate-MS4 pilot.
 
 > **Note:** This is a screening-level 2D overland pooling and coastal-compound flood model grounded in peer-reviewed literature and gated by controlled A/B ablations (see [`docs/METHODS.md`](docs/METHODS.md) and [`docs/DECISIONS.md`](docs/DECISIONS.md)). It is not a 1D parcel-level storm-pipe capacity model or a regulatory FEMA flood map.
 
@@ -26,18 +26,21 @@ An open-source urban stormwater and compound sea level rise (SLR) flood model an
 ├── docs/
 │   ├── METHODS.md            # Scientific methodology, equations, limitations, & DOIs
 │   ├── MODEL_SPEC.md         # Operational pipeline spec, datums, & domain traps
+│   ├── VALIDATION_SPEC.md    # 5-tier open validation matrix & anti-overfitting rules
 │   ├── DATA_CONTRACTS.md     # Shared COG, vector, & manifest schemas
 │   ├── DATA_SOURCES.md       # Upstream dataset licenses & attribution
 │   ├── DECISIONS.md          # Architecture & calibration design rationale
 │   ├── WEB_SPEC.md           # MapLibre frontend & UI specification
 │   ├── reports/
-│   │   └── sf_v02_validation.md  # v0.2 citywide SFPUC & 311 3-way validation report
+│   │   ├── sf_v02_validation.md      # v0.2 citywide SFPUC & 311 validation report
+│   │   └── sf_v02_vs_v04_ablation.md # v0.4 controlled ablation & MRMS ensemble report
 │   └── plan/
 │       ├── ROADMAP.md        # Milestone index & future backlog
 │       ├── PLAN_V01.md       # v0.1 ~20 km² SF slice checklist (complete)
 │       ├── PLAN_V02.md       # v0.2 citywide SF compound SLR plan (complete)
-│       ├── PLAN_V03.md       # v0.3 static COG hosting & deployment plan
-│       └── PLAN_V04.md       # v0.4 SF literature upgrades & ablation plan
+│       ├── PLAN_V03.md       # v0.3 static COG hosting & deployment plan (complete)
+│       ├── PLAN_V04.md       # v0.4 SF literature upgrades & ablation plan (complete)
+│       └── PLAN_V05.md       # v0.5 5-tier open validation layer (SF baseline)
 ├── configs/
 │   ├── sf_citywide.yml       # Citywide SF (20 m / 2 m) + AR hindcast config
 │   └── sf_benchmark.yml      # v0.1 ~20 km² SF benchmark slice config

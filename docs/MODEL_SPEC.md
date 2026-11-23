@@ -7,7 +7,9 @@ Operational engineering specification for `pipeline/` and `configs/`. For full s
 - **v0.2 (Complete):** Citywide San Francisco (`20 m` grid / `2 m` subgrid), SFEI shoreline crest enforcement, dynamic NOAA `9414290` tidal boundaries (`+0/+1/+3/+5 ft` SLR), Dec 31, 2022 AR hindcast + 3-way 311 validation, and derived SLR delta COGs.
 - **v0.3 (Complete — see [`docs/plan/PLAN_V03.md`](plan/PLAN_V03.md)):** Static hosting of `data/web_outputs/` (`EPSG:3857` COGs, GeoJSON, `manifest.json`) on Cloudflare R2 + Cloudflare Pages.
 - **v0.4 (Complete — see [`docs/plan/PLAN_V04.md`](plan/PLAN_V04.md) & [`docs/reports/sf_v02_vs_v04_ablation.md`](reports/sf_v02_vs_v04_ablation.md)):** Literature-backed upgrades on San Francisco (4-gauge Bay tides, Tier 1a/1b/2 2D drainage via `netamprfile`, 4-AR hindcast ensemble, `40 m -> 10 m` quadtree mesh via `hydromt_sfincs 2.0.0`, and NOAA MRMS 1 km gridded QPE) ablated against frozen v0.2. Retained defaults: 4-gauge Bay tides + NOAA MRMS 1 km QPE for historical ARs + uniform `20 m` Tier 0 (`5.0 mm/hr`), with Tier 1a/1b/2 and `--quadtree` opt-in.
-- **v0.5 (Planned):** East/South Bay separate-MS4 expansion pilot with pumped-polder handling and optional Tier 2 municipal drainage overrides.
+- **v0.5 (In Progress — see [`docs/plan/PLAN_V05.md`](plan/PLAN_V05.md) & [`docs/VALIDATION_SPEC.md`](VALIDATION_SPEC.md)):** 5-tier open multi-source validation layer (NOAA/USGS gauges, pluggable hydraulic benchmarks, Caltrans/CHP road closures, 311 + Google Research Groundsource, OpenFEMA NFIP) built and baseline-scored on frozen SF v0.4 outputs.
+- **v0.6 (Planned):** SF multi-tier diagnostic audit & anti-overfitting calibration pass (temporal holdout storms, cross-tier consensus, mean-rate-matched Tier 1, 5-day MRMS antecedent moisture, Tier C underpass fixes).
+- **v0.7 (Planned):** San Francisquito Creek / East Palo Alto separate-MS4 pilot with zero-shot transfer baseline, pumped-polder handling (`sfincs.pump`), optional Tier 2 municipal overrides, and multi-region `web/` switching.
 - **v1.0 (Planned):** Regional mosaic across ~100–150 Bay Area sub-basins.
 
 ## 2. Core Data Sources & Invariants
@@ -52,5 +54,5 @@ All scripts must be idempotent, driven by YAML configs in `configs/` (e.g., `con
 
 ## 5. Known Domain Traps
 - **SFPUC Polygons Are Parcel-Snapped:** DataSF's 100-year polygons snap to property lines and exclude parks/beaches/open space; evaluate validation on urban bowls and street corridors rather than overfitting parcel edges.
-- **Pumped Polders (`v0.4+`):** Low-lying Bay-margin polders (e.g., Foster City, parts of Alameda/Oakland) sit below high tide and require explicit pump structures or masking in v0.4.
+- **Pumped Polders (`v0.7+`):** Low-lying Bay-margin polders (e.g., East Palo Alto/Foster City, parts of Alameda/Oakland) sit below high tide and require explicit `sfincs.pump` structures or `polder_mask_source` exclusions.
 - **Vertical Datum Boundary:** Apply `SFCD -> NAVD88` offsets *only* if comparing water-surface elevations against SFPUC records; never alter the base DEM datum.

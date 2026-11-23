@@ -21,7 +21,17 @@ This registry tracks all external geospatial datasets, climate/tide feeds, basem
 | **NOAA MRMS `MultiSensor_QPE_01H_Pass2` (1 km Gridded QPE)** | NOAA NSSL via AWS S3 (`noaa-mrms-pds`) / Iowa Environmental Mesonet (`mtarchive.geol.iastate.edu`) | **Public Domain** (U.S. Government work) | Hourly gauge-corrected radar QPE for historical AR hindcasts (`2021-10-24`, `2022-12-31`, `2023-01-09`, `2024-02-04`). |
 | **Historical Hourly Precipitation (Open-Meteo Control)** | Open-Meteo Historical Weather Archive (`archive-api.open-meteo.com`, ERA5-Land / Seamless) | **CC BY 4.0** (Creative Commons Attribution 4.0) | **Attribution required:** Credit *Weather data by Open-Meteo.com (CC BY 4.0)*. |
 
-## 2. Web Basemap & Solver Dependencies
+## 2. Multi-Source Validation Datasets (v0.5+)
+
+| Dataset | Provider / Source | License / Terms | Usage & Attribution Notes |
+| :--- | :--- | :--- | :--- |
+| **USGS NWIS & STN High-Water Marks** | USGS Water Data / Flood Event Viewer | **Public Domain** (U.S. Government work) | Credit *U.S. Geological Survey*. Convert any `NGVD29` records to `NAVD88` meters. |
+| **Caltrans QuickMap / CHP Incident Logs / 511 SF Bay** | Caltrans / CHP / MTC 511 | **Public / CA Open Data** | Open agency feeds for highway & underpass flood closures. |
+| **Google Research Groundsource** | Google Research (Zenodo / GEE GeoParquet) | **CC BY 4.0** | Credit *Google Research Groundsource (CC BY 4.0)*. Filter `area_km2 <= 25` for storm discovery & neighborhood presence. |
+| **OpenFEMA NFIP Redacted Claims (`FimaNfipClaims`)** | FEMA OpenFEMA API | **Public Domain** (U.S. Government work) | Tract / `0.1°` privacy-aggregated; use only for tract-level loss correlation (`v0.5+`). |
+| **Copernicus Sentinel-1 SAR** | ESA / Copernicus Data Space | **Copernicus Open Access** | Credit *Copernicus Sentinel data*. Flat Bay-margin/floodplain extent only (`v0.5+`). |
+
+## 3. Web Basemap & Solver Dependencies
 
 | Component | Source | License | Notes |
 | :--- | :--- | :--- | :--- |
