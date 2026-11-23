@@ -115,6 +115,8 @@ rain_events:
     end_date: "2023-01-01"
     timestep_min: 60
     hyetograph_file: "data/raw/sf_citywide/sf_hyetograph_ar_20221231_48hr.csv"
+    mrms_product: "MultiSensor_QPE_01H_Pass2"
+    mrms_qpe_file: "data/raw/sf_citywide/sf_mrms_qpe_20221231_48hr.nc"
   rain_ar_20211024:
     label: "Oct 24, 2021 Atmospheric River"
     return_period_yr: null
@@ -126,6 +128,8 @@ rain_events:
     end_date: "2021-10-25"
     timestep_min: 60
     hyetograph_file: "data/raw/sf_citywide/sf_hyetograph_ar_20211024_48hr.csv"
+    mrms_product: "MultiSensor_QPE_01H_Pass2"
+    mrms_qpe_file: "data/raw/sf_citywide/sf_mrms_qpe_20211024_48hr.nc"
   rain_ar_20230109:
     label: "Jan 9, 2023 Atmospheric River"
     return_period_yr: null
@@ -137,6 +141,8 @@ rain_events:
     end_date: "2023-01-10"
     timestep_min: 60
     hyetograph_file: "data/raw/sf_citywide/sf_hyetograph_ar_20230109_48hr.csv"
+    mrms_product: "MultiSensor_QPE_01H_Pass2"
+    mrms_qpe_file: "data/raw/sf_citywide/sf_mrms_qpe_20230109_48hr.nc"
   rain_ar_20240204:
     label: "Feb 4, 2024 Atmospheric River"
     return_period_yr: null
@@ -148,6 +154,8 @@ rain_events:
     end_date: "2024-02-05"
     timestep_min: 60
     hyetograph_file: "data/raw/sf_citywide/sf_hyetograph_ar_20240204_48hr.csv"
+    mrms_product: "MultiSensor_QPE_01H_Pass2"
+    mrms_qpe_file: "data/raw/sf_citywide/sf_mrms_qpe_20240204_48hr.nc"
 
 slr_increments:
   slr_0ft:
@@ -311,6 +319,7 @@ terrain_prep:
 sfincs_model:
   docker_image: "deltares/sfincs-cpu:latest"
   reference_time_utc: "2020-01-01T00:00:00"
+  rain_source: "default"  # "default" (Open-Meteo/Atlas14) or "mrms" (NOAA MRMS 1 km QPE)
   drainage_tier: "tier0"  # Kept at tier0 after v0.4 Phase 2 ablation; tier1a/1b/2 available via config or --drainage-tier
   drainage_rate_mm_hr: 5.0
   drainage_grid_res_m: 40.0

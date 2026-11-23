@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import math
 import os
 import subprocess
 import tempfile
 import time
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -20,8 +21,11 @@ import pandas as pd
 import rasterio
 import requests
 import shapely.wkt
+import xarray as xr
 import yaml
 from pyproj import CRS, Transformer
+from rasterio.transform import Affine, from_origin
+from rasterio.warp import Resampling, reproject
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon, box
 from shapely.ops import linemerge, polygonize
 
@@ -619,6 +623,160 @@ def _write_multi_station_tidal_csv(
                     *(f"{float(row[c]):.4f}" for c in cols),
                 ]
             )
+
+
+def build_mrms_hourly_urls(
+    start_date: str,
+    end_date: str,
+    product: str = "MultiSensor_QPE_01H_Pass2",
+) -> list[tuple[datetime, list[str]]]:
+    """Build hourly MRMS QPE URLs (AWS S3 primary, IEM MTArchive fallback) for [start_date, end_date]."""
+    t0 = datetime.fromisoformat(f"{start_date}T00:00:00")
+    t1 = datetime.fromisoformat(f"{end_date}T23:00:00")
+    if t1 < t0:
+        raise ValueError(f"end_date {end_date} precedes start_date {start_date}")
+
+    entries: list[tuple[datetime, list[str]]] = []
+    cur = t0
+    while cur <= t1:
+        # 01H QPE file at valid_time covers [valid_time - 1h, valid_time]
+        valid_t = cur + timedelta(hours=1)
+        ymd = valid_t.strftime("%Y%m%d")
+        hms = valid_t.strftime("%H%M%S")
+        aws_url = (
+            f"https://noaa-mrms-pds.s3.amazonaws.com/CONUS/{product}_00.00/"
+            f"{ymd}/MRMS_{product}_00.00_{ymd}-{hms}.grib2.gz"
+        )
+        iem_url = (
+            f"https://mtarchive.geol.iastate.edu/{valid_t:%Y}/{valid_t:%m}/{valid_t:%d}/"
+            f"mrms/ncep/{product}/{product}_00.00_{ymd}-{hms}.grib2.gz"
+        )
+        entries.append((cur, [aws_url, iem_url]))
+        cur += timedelta(hours=1)
+    return entries
+
+
+def clip_mrms_grib2_to_utm_grid(
+    grib_bytes: bytes,
+    bbox_utm: Sequence[float],
+    grid_res_m: float = 1000.0,
+    pad_m: float = 1000.0,
+    project_crs: str = "EPSG:26910",
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Read MRMS GRIB2 bytes and reproject/clip to a y-ascending EPSG:26910 grid."""
+    _assert_crs(project_crs, "EPSG:26910", "config.project.crs")
+    xmin, ymin, xmax, ymax = (float(v) for v in bbox_utm)
+    x0 = xmin - float(pad_m)
+    y0 = ymin - float(pad_m)
+    x1 = xmax + float(pad_m)
+    y1 = ymax + float(pad_m)
+    ncols = max(1, math.ceil((x1 - x0) / grid_res_m))
+    nrows = max(1, math.ceil((y1 - y0) / grid_res_m))
+    north_up_transform = from_origin(
+        x0, y0 + nrows * grid_res_m, grid_res_m, grid_res_m
+    )
+
+    with tempfile.NamedTemporaryFile(suffix=".grib2") as tmp:
+        tmp.write(grib_bytes)
+        tmp.flush()
+        with rasterio.open(tmp.name) as src:
+            src_arr = src.read(1).astype(np.float32)
+            src_transform = src.transform
+            if src.bounds.left > 180.0:
+                src_transform = Affine.translation(-360.0, 0.0) * src_transform
+            src_crs = src.crs or CRS.from_epsg(4326)
+
+    dst = np.full((nrows, ncols), np.nan, dtype=np.float32)
+    reproject(
+        source=src_arr,
+        destination=dst,
+        src_transform=src_transform,
+        src_crs=src_crs,
+        dst_transform=north_up_transform,
+        dst_crs=project_crs,
+        resampling=Resampling.bilinear,
+    )
+    dst = np.where(np.isfinite(dst) & (dst >= 0.0) & (dst <= 500.0), dst, 0.0).astype(
+        np.float32
+    )
+    dst = np.flipud(dst)
+    x_coords = x0 + (np.arange(ncols, dtype=np.float64) + 0.5) * grid_res_m
+    y_coords = y0 + (np.arange(nrows, dtype=np.float64) + 0.5) * grid_res_m
+    return dst, x_coords, y_coords
+
+
+def _fetch_mrms_qpe_stacks(cfg: Mapping[str, Any], force: bool) -> None:
+    project_crs = str(cfg["project"]["crs"])
+    bbox_utm = cfg["domain"]["bbox_epsg26910"]
+    for event_key, event_cfg in cfg.get("rain_events", {}).items():
+        mrms_file = event_cfg.get("mrms_qpe_file")
+        if not mrms_file:
+            continue
+        out_path = Path(mrms_file)
+        if out_path.exists() and not force:
+            print(f"[00_fetch_data] Skipping existing {out_path}")
+            continue
+
+        product = str(event_cfg.get("mrms_product", "MultiSensor_QPE_01H_Pass2"))
+        url_entries = build_mrms_hourly_urls(
+            start_date=str(event_cfg["start_date"]),
+            end_date=str(event_cfg["end_date"]),
+            product=product,
+        )
+        frames: list[np.ndarray] = []
+        times: list[datetime] = []
+        x_coords: np.ndarray | None = None
+        y_coords: np.ndarray | None = None
+        missing_hours = 0
+
+        for ts, urls in url_entries:
+            raw_bytes: bytes | None = None
+            for url in urls:
+                try:
+                    resp = requests.get(url, timeout=30)
+                    if resp.status_code == 200:
+                        raw_bytes = gzip.decompress(resp.content)
+                        break
+                except (requests.RequestException, OSError) as exc:
+                    print(f"[00_fetch_data] MRMS fetch retry ({url}): {exc}")
+            if raw_bytes is None:
+                missing_hours += 1
+                if frames:
+                    frames.append(np.zeros_like(frames[0]))
+                else:
+                    raise RuntimeError(
+                        f"MRMS {event_key} failed on first hour {ts.isoformat()}"
+                    )
+            else:
+                arr, x_c, y_c = clip_mrms_grib2_to_utm_grid(
+                    grib_bytes=raw_bytes,
+                    bbox_utm=bbox_utm,
+                    project_crs=project_crs,
+                )
+                x_coords, y_coords = x_c, y_c
+                frames.append(arr)
+            times.append(ts)
+
+        stack = np.stack(frames, axis=0).astype(np.float32)
+        da = xr.DataArray(
+            stack,
+            dims=("time", "y", "x"),
+            coords={
+                "time": pd.DatetimeIndex(times, name="time"),
+                "y": y_coords,
+                "x": x_coords,
+            },
+            name="precip_mm_hr",
+            attrs={"units": "mm/hr", "crs": project_crs, "product": product},
+        )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        da.to_dataset(name="precip_mm_hr").to_netcdf(out_path)
+        mean_tot = float(stack.sum(axis=0).mean())
+        max_tot = float(stack.sum(axis=0).max())
+        print(
+            f"[00_fetch_data] Wrote {event_key} MRMS QPE ({len(times)} hrs, "
+            f"missing={missing_hours}, mean={mean_tot:.1f} mm, max={max_tot:.1f} mm) -> {out_path}"
+        )
 
 
 def _fetch_hyetographs(cfg: Mapping[str, Any], force: bool) -> None:
@@ -1245,6 +1403,7 @@ def fetch_data(config_path: Path, force: bool = False) -> None:
     print(f"[00_fetch_data] Buffered WGS84 bbox: {buffered_wgs84_bbox}")
 
     _fetch_hyetographs(cfg, force=force)
+    _fetch_mrms_qpe_stacks(cfg, force=force)
     _fetch_tidal_hydrographs(cfg, force=force)
     _fetch_dem(
         output_path=Path(domain["dem_source"]),

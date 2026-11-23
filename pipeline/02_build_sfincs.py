@@ -11,10 +11,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import rasterio  # must precede geopandas/pyogrio to avoid GDAL 3.10 double-free
+
+# isort: split
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import rasterio
 import xarray as xr
 import yaml
 from hydromt_sfincs import SfincsModel
@@ -409,6 +411,50 @@ def build_gridded_net_precip_da(
     return da.rio.write_crs(project_crs)
 
 
+def build_mrms_net_precip_da(
+    mrms_da: xr.DataArray,
+    drainage_mm_hr: float | np.ndarray,
+    tref: datetime,
+    duration_hr: float,
+    project_crs: str,
+) -> xr.DataArray:
+    """Apply drainage abstraction to gridded MRMS QPE (time, y, x) and return SFINCS precip_2d."""
+    assert_crs_equals(project_crs, "EPSG:26910", "config.project.crs")
+    if duration_hr <= 0:
+        raise ValueError(f"duration_hr must be positive, got {duration_hr}")
+
+    times = pd.DatetimeIndex(mrms_da.coords["time"].values).tz_localize(None)
+    vals = mrms_da.values.astype(np.float32)
+
+    if np.ndim(drainage_mm_hr) == 0:
+        net = np.maximum(0.0, vals - float(drainage_mm_hr)).astype(np.float32)
+    else:
+        drain_arr = np.asarray(drainage_mm_hr, dtype=np.float32)
+        if drain_arr.ndim == 2:
+            net = np.maximum(0.0, vals - drain_arr[None, :, :]).astype(np.float32)
+        elif drain_arr.ndim == 3:
+            net = np.maximum(0.0, vals - drain_arr).astype(np.float32)
+        else:
+            raise ValueError(f"Unsupported drainage array shape: {drain_arr.shape}")
+
+    tstop = tref + timedelta(hours=duration_hr)
+    if times[-1].to_pydatetime() < tstop:
+        times = times.append(pd.DatetimeIndex([tstop]))
+        net = np.concatenate([net, net[-1:, :, :]], axis=0)
+
+    da = xr.DataArray(
+        net,
+        dims=("time", "y", "x"),
+        coords={
+            "time": pd.DatetimeIndex(times, name="time"),
+            "y": np.asarray(mrms_da.coords["y"].values, dtype=np.float64),
+            "x": np.asarray(mrms_da.coords["x"].values, dtype=np.float64),
+        },
+        name="precip_2d",
+    )
+    return da.rio.write_crs(project_crs)
+
+
 def _reproject_raster_to_grid(
     src_path: Path,
     dst_shape: tuple[int, int],
@@ -689,6 +735,7 @@ def _build_and_run_single_scenario(
     force: bool,
     drainage_tier_override: str | None = None,
     quadtree_override: bool | None = None,
+    rain_source_override: str | None = None,
 ) -> None:
     scenario_id = str(scenario["id"])
     rain_key = str(scenario["rain"])
@@ -884,7 +931,8 @@ def _build_and_run_single_scenario(
             grid_spec["nmax"] * grid_spec["nr_subgrid_pixels"],
             grid_spec["mmax"] * grid_spec["nr_subgrid_pixels"],
         ):
-            y_coords = sf.grid.data["msk"].coords["y"].values.ravel()
+            reg_mask_var = "mask" if "mask" in sf.grid.data else "msk"
+            y_coords = sf.grid.data[reg_mask_var].coords["y"].values.ravel()
             y_ascending = bool(y_coords[0] < y_coords[-1])
             valid_mask = compute_valid_active_mask(
                 dem_2m=dem_arr,
@@ -892,8 +940,12 @@ def _build_and_run_single_scenario(
                 nr_subgrid_pixels=grid_spec["nr_subgrid_pixels"],
                 y_ascending=y_ascending,
             )
-            da_msk = sf.grid.data["msk"].where(valid_mask, np.uint8(0)).astype(np.uint8)
-            sf.grid.data["msk"] = da_msk
+            da_msk = (
+                sf.grid.data[reg_mask_var]
+                .where(valid_mask, np.uint8(0))
+                .astype(np.uint8)
+            )
+            sf.grid.data[reg_mask_var] = da_msk
 
         if tidal_file:
             sf.mask.create_boundary(
@@ -940,7 +992,17 @@ def _build_and_run_single_scenario(
     if quadtree_enabled:
         config_kwargs["qtrfile"] = "sfincs.nc"
         config_kwargs["sbgfile"] = "sfincs.sbg"
-    if drainage_tier == "tier0":
+    rain_source = str(
+        rain_source_override or sfincs_cfg.get("rain_source", "default")
+    ).lower()
+    mrms_file = rain_cfg.get("mrms_qpe_file")
+    use_mrms = rain_source == "mrms" and bool(mrms_file)
+    if rain_source == "mrms" and not mrms_file:
+        raise ValueError(
+            f"rain_source='mrms' requested for {scenario_id}, but mrms_qpe_file is not configured."
+        )
+
+    if drainage_tier == "tier0" and not use_mrms:
         config_kwargs["precipfile"] = "sfincs.prp"
     else:
         config_kwargs["netamprfile"] = "sfincs_netampr.nc"
@@ -949,7 +1011,31 @@ def _build_and_run_single_scenario(
         config_kwargs["bzsfile"] = "sfincs.bzs"
 
     sf.config.update(config_kwargs)
-    if drainage_tier == "tier0":
+    if use_mrms:
+        mrms_path = Path(str(mrms_file))
+        if not mrms_path.exists():
+            raise FileNotFoundError(f"MRMS QPE NetCDF not found: {mrms_path}")
+        with xr.open_dataset(mrms_path) as mrms_ds:
+            mrms_da = mrms_ds["precip_mm_hr"].load()
+        mrms_drainage: float | np.ndarray = float(drainage_rate_mm_hr)
+        if drainage_tier != "tier0":
+            # Reproject/resample drainage onto MRMS grid if non-tier0 requested
+            drain_1a = compute_tier1a_drainage_rate_grid(
+                impervious_pct=np.full(mrms_da.shape[1:], 50.0, dtype=np.float32),
+                landcover=np.full(mrms_da.shape[1:], 22, dtype=np.int32),
+                base_rate_mm_hr=float(sfincs_cfg.get("tier1a_base_mm_hr", 2.0)),
+                max_rate_mm_hr=float(sfincs_cfg.get("tier1a_max_mm_hr", 10.0)),
+            )
+            mrms_drainage = drain_1a
+        precip_2d_da = build_mrms_net_precip_da(
+            mrms_da=mrms_da,
+            drainage_mm_hr=mrms_drainage,
+            tref=tref,
+            duration_hr=duration_hr,
+            project_crs=project_crs,
+        )
+        sf.precipitation.set(precip_2d_da, name="precip_2d")
+    elif drainage_tier == "tier0":
         sf.precipitation.set(precip_series.to_xarray(), name="precip")
     else:
         drainage_res_m = float(sfincs_cfg.get("drainage_grid_res_m", 40.0))
@@ -1034,7 +1120,7 @@ def _build_and_run_single_scenario(
     inp_path = run_dir / "sfincs.inp"
     expected_precip = (
         run_dir / "sfincs.prp"
-        if drainage_tier == "tier0"
+        if (drainage_tier == "tier0" and not use_mrms)
         else run_dir / "sfincs_netampr.nc"
     )
     if not inp_path.exists() or not expected_precip.exists():
@@ -1065,6 +1151,7 @@ def build_sfincs(
     drainage_rate_mm_hr: float | None = None,
     drainage_tier: str | None = None,
     quadtree: bool | None = None,
+    rain_source: str | None = None,
     skip_run: bool = False,
     force: bool = False,
 ) -> None:
@@ -1088,6 +1175,7 @@ def build_sfincs(
             force=force,
             drainage_tier_override=drainage_tier,
             quadtree_override=quadtree,
+            rain_source_override=rain_source,
         )
 
 
@@ -1130,6 +1218,13 @@ def main() -> None:
         help="Force-enable SFINCS quadtree mesh refinement.",
     )
     parser.add_argument(
+        "--rain-source",
+        type=str,
+        choices=["default", "open_meteo", "mrms"],
+        default=None,
+        help="Optional override for rainfall forcing source ('default', 'open_meteo', or 'mrms').",
+    )
+    parser.add_argument(
         "--skip-run",
         action="store_true",
         help="Write SFINCS model files without executing the Docker solver.",
@@ -1147,6 +1242,7 @@ def main() -> None:
         drainage_rate_mm_hr=args.drainage_rate_mm_hr,
         drainage_tier=args.drainage_tier,
         quadtree=args.quadtree,
+        rain_source=args.rain_source,
         skip_run=args.skip_run,
         force=args.force,
     )
