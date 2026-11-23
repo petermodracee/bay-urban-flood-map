@@ -17,7 +17,7 @@ This directory (`docs/plan/`) tracks active milestone checklists, completed plan
 ## Backlog / Future TODOs
 - **High-resolution SF pass (`10 m` grid / `1 m` subgrid):** Re-run full SF once v0.2 `20 m / 2 m` validation and drainage-lock deltas are verified.
 - **Automated CI:** GitHub Actions workflow running `pytest`, `ruff check && ruff format --check`, `node --test`, `npm run lint`, and `npm run build` on pull requests.
-- **Viewer UX enhancements:** Address/intersection geocoder search, neighborhood summary stats panel, and shareable URL state (`#scenario=...&lat=...`).
+- **Viewer UX enhancements (`v0.7+`):** Neighborhood summary stats panel and SFEI shoreline/levee crest overlay toggle (address/intersection search, hotspot chips, and shareable URL state are scheduled in `v0.6` via [`PLAN_V06.md`](./PLAN_V06.md)).
 - **Three-tier progressive 2D drainage (`v0.4+`):** Tier 1 Bay-wide `(DEM - tide)` + NLCD net-rain grid (`netamprfile`) with optional Tier 2 `domain.storm_drain_source` municipal override and `drainage_tier` provenance in `manifest.json`.
 - **Caltrans PeMS / 511 SF Bay Tier C provider (`v0.6`/`v0.7`):** Add a pluggable **Caltrans PeMS historical CHP incident CSV** (and/or 511 SF Bay) Tier C provider once the PeMS portal upgrade completes, for Bay-wide highway closure validation alongside the existing SF DataSF emergency-dispatch provider.
 - **Climate-adjusted rainfall sensitivity:** Optional future-precipitation multiplier experiments once historical baseline is published.
