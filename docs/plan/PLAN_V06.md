@@ -35,7 +35,8 @@
 - [ ] Add a concise **Public Methodology** modal/page linked from `web/` populated with final v0.6 metrics (plain-English overview, workflow diagram, screening-level disclaimers, validation highlights, and links to [`docs/METHODS.md`](../METHODS.md) & [`docs/VALIDATION_SPEC.md`](../VALIDATION_SPEC.md)).
 - [ ] Verify `web/` with `cd web && node --test src/*.test.js && npm run lint && npm run build`.
 - [ ] Upload refreshed `data/web_outputs/` (`*.tif` COGs, GeoJSON overlays, `manifest.json`) to Cloudflare R2 and verify live HTTP `Range` / CORS streaming on `https://bay-urban-flood-map.pages.dev`.
-- [ ] Cut `v0.6.0` (`--prerelease`) GitHub Release on `main` linking `docs/plan/PLAN_V06.md` and `docs/reports/sf_v06_calibration_report.md`.
+- [ ] Add `CITATION.cff` to the repo root, enable the GitHub → Zenodo integration before cutting `v0.6.0`, and badge the minted concept DOI in `README.md`.
+- [ ] Cut `v0.6.0` (`--prerelease`) GitHub Release on `main` linking `docs/plan/PLAN_V06.md` and `docs/reports/sf_v06_calibration_report.md` (triggering the first permanent Zenodo DOI).
 
 ---
 
