@@ -41,7 +41,9 @@ An open-source urban stormwater and compound sea level rise (SLR) flood model an
 │       ├── PLAN_V02.md       # v0.2 citywide SF compound SLR plan (complete)
 │       ├── PLAN_V03.md       # v0.3 static COG hosting & deployment plan (complete)
 │       ├── PLAN_V04.md       # v0.4 SF literature upgrades & ablation plan (complete)
-│       └── PLAN_V05.md       # v0.5 5-tier open validation layer (complete)
+│       ├── PLAN_V04.md       # v0.4 SF literature upgrades & ablation plan (complete)
+│       ├── PLAN_V05.md       # v0.5 5-tier open validation layer (complete)
+│       └── PLAN_V06.md       # v0.6 SF calibration, validation overlays, & R2 publish
 ├── configs/
 │   ├── sf_citywide.yml       # Citywide SF (20 m / 2 m) + AR hindcast config
 │   └── sf_benchmark.yml      # v0.1 ~20 km² SF benchmark slice config
