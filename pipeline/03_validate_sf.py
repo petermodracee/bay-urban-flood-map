@@ -10,13 +10,14 @@ import subprocess
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import rasterio  # rasterio must precede geopandas/pyogrio to avoid GDAL 3.10 double-free
 
 # isort: split
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import xarray as xr
 import yaml
 from hydromt_sfincs import SfincsModel
@@ -723,6 +724,409 @@ def build_design_benchmark_summary(
     }
 
 
+FEET_TO_METERS = 0.3048
+_SUPPORTED_VERTICAL_DATUMS = {"NAVD88", "NGVD29", "MLLW", "LMSL"}
+
+
+def convert_elevation_to_navd88_m(
+    elevation: float | np.ndarray,
+    *,
+    vertical_datum: str = "NAVD88",
+    unit: str = "m",
+    offset_to_navd88_m: float | None = None,
+) -> float | np.ndarray:
+    """Convert a water-surface or HWM elevation to NAVD88 meters.
+
+    Any NGVD29, MLLW, or LMSL record requires an explicit station/local
+    ``offset_to_navd88_m`` (in meters) so datum shifts are never guessed.
+    """
+    unit_norm = unit.strip().lower()
+    if unit_norm in {"m", "meter", "meters"}:
+        scale = 1.0
+    elif unit_norm in {"ft", "foot", "feet"}:
+        scale = FEET_TO_METERS
+    else:
+        raise ValueError(f"Unsupported elevation unit: {unit!r}")
+
+    elev_m = (
+        np.asarray(elevation, dtype=np.float64) * scale
+        if isinstance(elevation, np.ndarray)
+        else float(elevation) * scale
+    )
+
+    datum_norm = vertical_datum.strip().upper()
+    if datum_norm not in _SUPPORTED_VERTICAL_DATUMS:
+        raise ValueError(f"Unsupported vertical datum: {vertical_datum!r}")
+    if datum_norm == "NAVD88":
+        return elev_m
+    if offset_to_navd88_m is None:
+        raise ValueError(
+            f"Datum {datum_norm} requires explicit offset_to_navd88_m to convert to NAVD88."
+        )
+    return elev_m + float(offset_to_navd88_m)
+
+
+def compute_gauge_timeseries_metrics(
+    time_min: Sequence[float] | np.ndarray,
+    obs_wse_navd88_m: Sequence[float] | np.ndarray,
+    mod_wse_navd88_m: Sequence[float] | np.ndarray,
+    *,
+    skip_initial_steps: int = 0,
+) -> dict[str, Any]:
+    """Compute Tier A gauge hydrograph error metrics in NAVD88 meters and minutes."""
+    t_arr = np.asarray(time_min, dtype=np.float64)[skip_initial_steps:]
+    obs_arr = np.asarray(obs_wse_navd88_m, dtype=np.float64)[skip_initial_steps:]
+    mod_arr = np.asarray(mod_wse_navd88_m, dtype=np.float64)[skip_initial_steps:]
+
+    if not (len(t_arr) == len(obs_arr) == len(mod_arr)):
+        raise ValueError(
+            f"Time series length mismatch: time={len(t_arr)}, obs={len(obs_arr)}, mod={len(mod_arr)}"
+        )
+
+    valid = np.isfinite(t_arr) & np.isfinite(obs_arr) & np.isfinite(mod_arr)
+    n_samples = int(np.sum(valid))
+    if n_samples == 0:
+        return {
+            "n_samples": 0,
+            "rmse_m": None,
+            "mae_m": None,
+            "bias_m": None,
+            "obs_peak_m": None,
+            "mod_peak_m": None,
+            "peak_error_m": None,
+            "obs_peak_time_min": None,
+            "mod_peak_time_min": None,
+            "peak_timing_error_min": None,
+            "nse": None,
+        }
+
+    t_v = t_arr[valid]
+    obs_v = obs_arr[valid]
+    mod_v = mod_arr[valid]
+    err = mod_v - obs_v
+
+    rmse_m = float(np.sqrt(np.mean(err**2)))
+    mae_m = float(np.mean(np.abs(err)))
+    bias_m = float(np.mean(err))
+
+    obs_idx = int(np.argmax(obs_v))
+    mod_idx = int(np.argmax(mod_v))
+    obs_peak_m = float(obs_v[obs_idx])
+    mod_peak_m = float(mod_v[mod_idx])
+    obs_peak_time_min = float(t_v[obs_idx])
+    mod_peak_time_min = float(t_v[mod_idx])
+
+    ss_res = float(np.sum(err**2))
+    ss_tot = float(np.sum((obs_v - np.mean(obs_v)) ** 2))
+    nse = round(1.0 - ss_res / ss_tot, 4) if ss_tot > 0.0 else None
+
+    return {
+        "n_samples": n_samples,
+        "rmse_m": round(rmse_m, 4),
+        "mae_m": round(mae_m, 4),
+        "bias_m": round(bias_m, 4),
+        "obs_peak_m": round(obs_peak_m, 4),
+        "mod_peak_m": round(mod_peak_m, 4),
+        "peak_error_m": round(mod_peak_m - obs_peak_m, 4),
+        "obs_peak_time_min": round(obs_peak_time_min, 1),
+        "mod_peak_time_min": round(mod_peak_time_min, 1),
+        "peak_timing_error_min": round(mod_peak_time_min - obs_peak_time_min, 1),
+        "nse": nse,
+    }
+
+
+def sample_raster_at_points(
+    raster_m: np.ndarray,
+    points_xy_utm: Sequence[tuple[float, float]],
+    transform: Affine,
+    *,
+    nodata_value: float = -9999.0,
+) -> np.ndarray:
+    """Sample a 2D EPSG:26910 raster at (x_m, y_m) point coordinates."""
+    if not points_xy_utm:
+        return np.empty(0, dtype=np.float64)
+    height, width = raster_m.shape
+    out = np.full(len(points_xy_utm), np.nan, dtype=np.float64)
+    for i, (x_m, y_m) in enumerate(points_xy_utm):
+        r, c = rowcol(transform, float(x_m), float(y_m))
+        if 0 <= r < height and 0 <= c < width:
+            val = float(raster_m[r, c])
+            if np.isfinite(val) and val != nodata_value:
+                out[i] = val
+    return out
+
+
+def compute_hwm_metrics(
+    obs_wse_navd88_m: Sequence[float] | np.ndarray,
+    mod_wse_navd88_m: Sequence[float] | np.ndarray,
+) -> dict[str, Any]:
+    """Compute Tier A High-Water Mark (HWM) peak water-surface metrics in NAVD88 meters."""
+    obs_arr = np.asarray(obs_wse_navd88_m, dtype=np.float64)
+    mod_arr = np.asarray(mod_wse_navd88_m, dtype=np.float64)
+    if len(obs_arr) != len(mod_arr):
+        raise ValueError(
+            f"HWM array length mismatch: obs={len(obs_arr)}, mod={len(mod_arr)}"
+        )
+    valid = np.isfinite(obs_arr) & np.isfinite(mod_arr)
+    n_hwm = int(np.sum(valid))
+    if n_hwm == 0:
+        return {
+            "n_hwm": 0,
+            "rmse_m": None,
+            "mae_m": None,
+            "bias_m": None,
+            "max_abs_error_m": None,
+            "obs_mean_m": None,
+            "mod_mean_m": None,
+        }
+    obs_v = obs_arr[valid]
+    mod_v = mod_arr[valid]
+    err = mod_v - obs_v
+    return {
+        "n_hwm": n_hwm,
+        "rmse_m": round(float(np.sqrt(np.mean(err**2))), 4),
+        "mae_m": round(float(np.mean(np.abs(err))), 4),
+        "bias_m": round(float(np.mean(err)), 4),
+        "max_abs_error_m": round(float(np.max(np.abs(err))), 4),
+        "obs_mean_m": round(float(np.mean(obs_v)), 4),
+        "mod_mean_m": round(float(np.mean(mod_v)), 4),
+    }
+
+
+def parse_usgs_nwis_iv_json(
+    payload: Mapping[str, Any],
+    *,
+    parameter_cd: str = "00065",
+    vertical_datum: str = "NAVD88",
+    unit: str = "ft",
+    offset_to_navd88_m: float | None = None,
+) -> dict[str, Any]:
+    """Parse USGS NWIS Instantaneous Values JSON into NAVD88-meter time series."""
+    series_list = payload.get("value", {}).get("timeSeries", [])
+    for ts in series_list:
+        var_codes = [
+            c.get("value") for c in ts.get("variable", {}).get("variableCode", [])
+        ]
+        if parameter_cd and parameter_cd not in var_codes:
+            continue
+        src_info = ts.get("sourceInfo", {})
+        site_codes = src_info.get("siteCode", [{}])
+        station_id = str(site_codes[0].get("value", "")) if site_codes else ""
+        station_name = str(src_info.get("siteName", station_id))
+        geo = src_info.get("geoLocation", {}).get("geogLocation", {})
+        lat = float(geo["latitude"]) if "latitude" in geo else None
+        lon = float(geo["longitude"]) if "longitude" in geo else None
+
+        values_block = ts.get("values", [{}])
+        raw_points = values_block[0].get("value", []) if values_block else []
+        times_utc: list[str] = []
+        wse_navd88_m: list[float] = []
+        for pt in raw_points:
+            raw_val = pt.get("value")
+            if raw_val is None or str(raw_val) in {"", "-999999"}:
+                continue
+            val_m = convert_elevation_to_navd88_m(
+                float(raw_val),
+                vertical_datum=vertical_datum,
+                unit=unit,
+                offset_to_navd88_m=offset_to_navd88_m,
+            )
+            times_utc.append(str(pt["dateTime"]))
+            wse_navd88_m.append(round(float(val_m), 4))
+
+        return {
+            "station_id": station_id,
+            "station_name": station_name,
+            "lat": lat,
+            "lon": lon,
+            "vertical_datum": "NAVD88",
+            "times_utc": times_utc,
+            "wse_navd88_m": wse_navd88_m,
+        }
+
+    raise ValueError(f"No USGS NWIS timeSeries found for parameter_cd={parameter_cd!r}")
+
+
+def parse_usgs_stn_hwm_records(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    target_crs: str = "EPSG:26910",
+) -> gpd.GeoDataFrame:
+    """Parse USGS STN High-Water Mark records into an EPSG:26910 NAVD88 GeoDataFrame."""
+    rows: list[dict[str, Any]] = []
+    for rec in records:
+        if "wse_m" in rec and rec["wse_m"] is not None:
+            raw_elev = float(rec["wse_m"])
+            unit = str(rec.get("unit", "m"))
+        elif "elev_ft" in rec and rec["elev_ft"] is not None:
+            raw_elev = float(rec["elev_ft"])
+            unit = "ft"
+        else:
+            continue
+        datum = str(rec.get("vertical_datum", rec.get("verticalDatumName", "NAVD88")))
+        offset_m = rec.get("offset_to_navd88_m")
+        wse_navd88_m = float(
+            convert_elevation_to_navd88_m(
+                raw_elev,
+                vertical_datum=datum,
+                unit=unit,
+                offset_to_navd88_m=float(offset_m) if offset_m is not None else None,
+            )
+        )
+        rows.append(
+            {
+                "hwm_id": str(rec.get("hwm_id", len(rows) + 1)),
+                "source_datum": datum.upper(),
+                "wse_navd88_m": round(wse_navd88_m, 4),
+                "lon": float(rec["longitude"]),
+                "lat": float(rec["latitude"]),
+            }
+        )
+
+    if not rows:
+        return gpd.GeoDataFrame(
+            columns=["hwm_id", "source_datum", "wse_navd88_m", "geometry"],
+            geometry="geometry",
+            crs=target_crs,
+        )
+
+    df = pd.DataFrame(rows)
+    gdf = gpd.GeoDataFrame(
+        df,
+        geometry=gpd.points_from_xy(df["lon"], df["lat"]),
+        crs="EPSG:4326",
+    ).to_crs(target_crs)
+    gdf["x_epsg26910"] = gdf.geometry.x
+    gdf["y_epsg26910"] = gdf.geometry.y
+    return gdf[
+        [
+            "hwm_id",
+            "source_datum",
+            "wse_navd88_m",
+            "x_epsg26910",
+            "y_epsg26910",
+            "geometry",
+        ]
+    ]
+
+
+class BenchmarkSpec(NamedTuple):
+    """Configuration for a pluggable Tier B polygon hydraulic benchmark."""
+
+    source: str
+    vector_path: Path
+    depth_threshold_m: float = 0.1524
+    layer: str | None = None
+    attribute_filter: Mapping[str, Sequence[Any]] | None = None
+    corridors_utm: Mapping[str, tuple[float, float, float, float]] | None = None
+
+
+def filter_benchmark_geodataframe(
+    gdf: gpd.GeoDataFrame,
+    attribute_filter: Mapping[str, Sequence[Any]] | None = None,
+) -> gpd.GeoDataFrame:
+    """Filter a Tier B benchmark GeoDataFrame by column allow-lists."""
+    if not attribute_filter:
+        return gdf
+    mask = pd.Series(True, index=gdf.index)
+    for col, allowed in attribute_filter.items():
+        if col not in gdf.columns:
+            raise ValueError(f"Benchmark attribute_filter column {col!r} not in layer")
+        mask = mask & gdf[col].isin(list(allowed))
+    return gdf.loc[mask].copy()
+
+
+def evaluate_polygon_benchmark(
+    depth_m: np.ndarray,
+    benchmark_gdf_utm: gpd.GeoDataFrame,
+    valid_land_mask: np.ndarray,
+    transform: Affine,
+    *,
+    source: str = "sfpuc_100yr",
+    depth_threshold_m: float = 0.1524,
+    corridors_utm: Mapping[str, tuple[float, float, float, float]] | None = None,
+    attribute_filter: Mapping[str, Sequence[Any]] | None = None,
+    target_crs: str = "EPSG:26910",
+) -> dict[str, Any]:
+    """Evaluate modeled depth against a pluggable Tier B polygon hydraulic benchmark."""
+    assert_crs_equals(benchmark_gdf_utm.crs, target_crs, f"benchmark[{source}]")
+    filtered_gdf = filter_benchmark_geodataframe(benchmark_gdf_utm, attribute_filter)
+    obs_mask = rasterize_benchmark_polygons(
+        gdf_utm=filtered_gdf,
+        out_shape=depth_m.shape,
+        transform=transform,
+    )
+    metrics = compute_flood_metrics(
+        depth_m=depth_m,
+        obs_mask=obs_mask,
+        valid_mask=valid_land_mask,
+        depth_threshold_m=depth_threshold_m,
+    )
+    corridors = (
+        compute_corridor_benchmark_metrics(
+            depth_m=depth_m,
+            obs_mask=obs_mask,
+            valid_land_mask=valid_land_mask,
+            transform=transform,
+            depth_threshold_m=depth_threshold_m,
+            corridors_utm=corridors_utm,
+            label_key="corridor",
+        )
+        if corridors_utm
+        else []
+    )
+    return {
+        "summary": build_design_benchmark_summary(
+            source=source,
+            depth_threshold_m=depth_threshold_m,
+            metrics=metrics,
+        ),
+        "metrics": metrics,
+        "corridors": corridors,
+    }
+
+
+def load_benchmark_specs(cfg: Mapping[str, Any]) -> list[BenchmarkSpec]:
+    """Load Tier B BenchmarkSpec list from config (supports pluggable benchmarks or legacy validation_reference)."""
+    project = cfg.get("project", {})
+    domain = cfg.get("domain", {})
+    val_cfg = cfg.get("validation", {})
+    default_thr_m = float(val_cfg.get("depth_threshold_m", 0.1524))
+    default_corridors = (
+        SF_NEIGHBORHOOD_BOXES_UTM
+        if str(project.get("region_id", "")) == "sf_citywide"
+        else None
+    )
+
+    specs: list[BenchmarkSpec] = []
+    raw_benchmarks = val_cfg.get("benchmarks")
+    if raw_benchmarks:
+        for b in raw_benchmarks:
+            specs.append(
+                BenchmarkSpec(
+                    source=str(b["source"]),
+                    vector_path=Path(b["vector_file"]),
+                    depth_threshold_m=float(b.get("depth_threshold_m", default_thr_m)),
+                    layer=b.get("layer"),
+                    attribute_filter=b.get("attribute_filter"),
+                    corridors_utm=b.get("corridors_utm", default_corridors),
+                )
+            )
+        return specs
+
+    val_ref_raw = domain.get("validation_reference")
+    if val_ref_raw:
+        specs.append(
+            BenchmarkSpec(
+                source=str(val_cfg.get("benchmark_source_name", "sfpuc_100yr")),
+                vector_path=Path(val_ref_raw),
+                depth_threshold_m=default_thr_m,
+                corridors_utm=default_corridors,
+            )
+        )
+    return specs
+
+
 def aggregate_ensemble_311_metrics(
     event_results: Sequence[Mapping[str, Any]],
     *,
@@ -1294,6 +1698,174 @@ def _evaluate_run(
     return depth_m, metrics
 
 
+def extract_sfincs_gauge_series(
+    map_nc_path: Path,
+    x_epsg26910: float,
+    y_epsg26910: float,
+    *,
+    max_snap_distance_m: float = 500.0,
+) -> tuple[np.ndarray, np.ndarray, dict[str, Any]] | None:
+    """Extract modeled SFINCS water-surface time series (NAVD88 m) at the nearest active cell."""
+    with xr.open_dataset(map_nc_path) as ds:
+        if "zs" not in ds or "time" not in ds:
+            return None
+        x_grid = ds["x"].values.astype(np.float64)
+        y_grid = ds["y"].values.astype(np.float64)
+        dist = np.hypot(x_grid - float(x_epsg26910), y_grid - float(y_epsg26910))
+        if "msk" in ds:
+            active = ds["msk"].values > 0
+            dist = np.where(active, dist, np.inf)
+        min_dist = float(np.min(dist))
+        if not np.isfinite(min_dist) or min_dist > float(max_snap_distance_m):
+            return None
+
+        r_idx, c_idx = np.unravel_index(int(np.argmin(dist)), dist.shape)
+        zs_series = ds["zs"].values[:, r_idx, c_idx].astype(np.float64)
+        times = pd.to_datetime(ds["time"].values)
+        time_min = ((times - times[0]).total_seconds() / 60.0).to_numpy(
+            dtype=np.float64
+        )
+        cell_info = {
+            "row": int(r_idx),
+            "col": int(c_idx),
+            "snap_distance_m": round(min_dist, 2),
+        }
+    return time_min, zs_series, cell_info
+
+
+def evaluate_event_gauges(
+    gauges_file: Path,
+    map_nc_path: Path,
+    *,
+    tide_gauges_cfg: Sequence[Mapping[str, Any]] = (),
+    zsmax_m: np.ndarray | None = None,
+    transform: Affine | None = None,
+    nodata_value: float = -9999.0,
+    max_snap_distance_m: float = 500.0,
+) -> dict[str, Any] | None:
+    """Evaluate Tier A coastal/stream gauges and/or HWMs for one hindcast event."""
+    if not gauges_file.exists():
+        return None
+
+    stations_out: list[dict[str, Any]] = []
+    hwm_summary: dict[str, Any] | None = None
+
+    suffix = gauges_file.suffix.lower()
+    if suffix == ".csv":
+        df = pd.read_csv(gauges_file)
+        if "time_min" in df.columns:
+            gauge_meta = {str(g["id"]): g for g in tide_gauges_cfg if "id" in g}
+            for col in df.columns:
+                if not (col.startswith("wl_") and col.endswith("_m")):
+                    continue
+                station_id = col[len("wl_") : -len("_m")]
+                meta = gauge_meta.get(station_id)
+                if meta is None:
+                    continue
+                extracted = extract_sfincs_gauge_series(
+                    map_nc_path=map_nc_path,
+                    x_epsg26910=float(meta["x_epsg26910"]),
+                    y_epsg26910=float(meta["y_epsg26910"]),
+                    max_snap_distance_m=max_snap_distance_m,
+                )
+                if extracted is None:
+                    continue
+                mod_t_min, mod_zs_m, cell_info = extracted
+                obs_df = df[["time_min", col]].dropna()
+                obs_by_t = dict(
+                    zip(
+                        np.round(obs_df["time_min"].to_numpy(dtype=np.float64), 3),
+                        obs_df[col].to_numpy(dtype=np.float64),
+                        strict=True,
+                    )
+                )
+                aligned_t: list[float] = []
+                aligned_obs: list[float] = []
+                aligned_mod: list[float] = []
+                for idx, (t_m, m_val) in enumerate(
+                    zip(mod_t_min, mod_zs_m, strict=True)
+                ):
+                    # Skip cold-start t=0 initial condition (zs=0.0 before boundary spinup)
+                    if idx == 0 and math.isclose(t_m, 0.0) and math.isclose(m_val, 0.0):
+                        continue
+                    t_key = round(float(t_m), 3)
+                    if t_key in obs_by_t and np.isfinite(m_val):
+                        aligned_t.append(float(t_m))
+                        aligned_obs.append(float(obs_by_t[t_key]))
+                        aligned_mod.append(float(m_val))
+                if not aligned_t:
+                    continue
+                m = compute_gauge_timeseries_metrics(
+                    time_min=aligned_t,
+                    obs_wse_navd88_m=aligned_obs,
+                    mod_wse_navd88_m=aligned_mod,
+                )
+                stations_out.append(
+                    {
+                        "station_id": station_id,
+                        "name": str(meta.get("name", station_id)),
+                        "snap_distance_m": cell_info["snap_distance_m"],
+                        **m,
+                    }
+                )
+    elif suffix == ".json":
+        payload = json.loads(gauges_file.read_text(encoding="utf-8"))
+        if (
+            isinstance(payload, Mapping)
+            and "hwm_records" in payload
+            and zsmax_m is not None
+            and transform is not None
+        ):
+            hwm_gdf = parse_usgs_stn_hwm_records(payload["hwm_records"])
+            if len(hwm_gdf) > 0:
+                pts_xy = list(
+                    zip(
+                        hwm_gdf["x_epsg26910"].to_numpy(dtype=np.float64),
+                        hwm_gdf["y_epsg26910"].to_numpy(dtype=np.float64),
+                        strict=True,
+                    )
+                )
+                mod_vals = sample_raster_at_points(
+                    zsmax_m, pts_xy, transform, nodata_value=nodata_value
+                )
+                hwm_summary = compute_hwm_metrics(
+                    obs_wse_navd88_m=hwm_gdf["wse_navd88_m"].to_numpy(dtype=np.float64),
+                    mod_wse_navd88_m=mod_vals,
+                )
+
+    if not stations_out and hwm_summary is None:
+        return None
+
+    rmses = [s["rmse_m"] for s in stations_out if s.get("rmse_m") is not None]
+    maes = [s["mae_m"] for s in stations_out if s.get("mae_m") is not None]
+    biases = [s["bias_m"] for s in stations_out if s.get("bias_m") is not None]
+    timings = [
+        s["peak_timing_error_min"]
+        for s in stations_out
+        if s.get("peak_timing_error_min") is not None
+    ]
+    summary = {
+        "rmse_m": round(float(np.mean(rmses)), 4)
+        if rmses
+        else (hwm_summary.get("rmse_m") if hwm_summary else None),
+        "mae_m": round(float(np.mean(maes)), 4)
+        if maes
+        else (hwm_summary.get("mae_m") if hwm_summary else None),
+        "bias_m": round(float(np.mean(biases)), 4)
+        if biases
+        else (hwm_summary.get("bias_m") if hwm_summary else None),
+        "peak_timing_error_min": round(float(np.mean(timings)), 1) if timings else None,
+    }
+    return {
+        "vertical_datum": "NAVD88",
+        "n_stations": len(stations_out),
+        "n_hwm": int(hwm_summary["n_hwm"]) if hwm_summary else 0,
+        "stations": stations_out,
+        "hwm": hwm_summary,
+        "summary": summary,
+    }
+
+
 def validate_region(
     config_path: Path,
     scenario_id: str | None = None,
@@ -1323,19 +1895,27 @@ def validate_region(
         dst_transform = dem_ds.transform
         dem_nodata = float(dem_ds.nodata if dem_ds.nodata is not None else -9999.0)
 
-    val_ref_raw = domain.get("validation_reference")
-    has_design_benchmark = bool(val_ref_raw)
-    if val_ref_raw:
-        sfpuc_path = Path(val_ref_raw)
-        if not sfpuc_path.exists():
+    benchmark_specs = load_benchmark_specs(cfg)
+    has_design_benchmark = len(benchmark_specs) > 0
+    primary_benchmark: BenchmarkSpec | None = (
+        benchmark_specs[0] if has_design_benchmark else None
+    )
+    if primary_benchmark is not None:
+        if not primary_benchmark.vector_path.exists():
             raise FileNotFoundError(
-                f"Validation reference vector not found: {sfpuc_path}"
+                f"Validation reference vector not found: {primary_benchmark.vector_path}"
             )
-        sfpuc_gdf = gpd.read_file(sfpuc_path)
+        read_kwargs: dict[str, Any] = (
+            {"layer": primary_benchmark.layer} if primary_benchmark.layer else {}
+        )
+        sfpuc_gdf = gpd.read_file(primary_benchmark.vector_path, **read_kwargs)
         if sfpuc_gdf.crs is None:
-            raise ValueError(f"{sfpuc_path} is missing CRS")
+            raise ValueError(f"{primary_benchmark.vector_path} is missing CRS")
+        sfpuc_gdf_utm = filter_benchmark_geodataframe(
+            sfpuc_gdf.to_crs(project_crs), primary_benchmark.attribute_filter
+        )
         obs_mask = rasterize_benchmark_polygons(
-            gdf_utm=sfpuc_gdf.to_crs(project_crs),
+            gdf_utm=sfpuc_gdf_utm,
             out_shape=dem_m.shape,
             transform=dst_transform,
         )
@@ -1343,7 +1923,11 @@ def validate_region(
         obs_mask = np.zeros(dem_m.shape, dtype=bool)
 
     min_land_elev_m = float(val_cfg.get("min_land_elevation_m", 0.5))
-    depth_threshold_m = float(val_cfg.get("depth_threshold_m", 0.1524))
+    depth_threshold_m = float(
+        primary_benchmark.depth_threshold_m
+        if primary_benchmark is not None
+        else val_cfg.get("depth_threshold_m", 0.1524)
+    )
     valid_dem = (dem_m != dem_nodata) & np.isfinite(dem_m)
     exclude_open_water = bool(val_cfg.get("exclude_open_water", True))
     nlcd_arr: np.ndarray | None = None
@@ -1639,6 +2223,20 @@ def validate_region(
                 benchmark_mask=obs_mask if has_design_benchmark else None,
                 nodata_value=dem_nodata,
             )
+            tiers_evaluated = ["311"]
+            gauge_hwm_val: dict[str, Any] | None = None
+            gauges_file_raw = ev.get("gauges_file")
+            if gauges_file_raw:
+                gauge_hwm_val = evaluate_event_gauges(
+                    gauges_file=Path(gauges_file_raw),
+                    map_nc_path=ev_map_nc,
+                    tide_gauges_cfg=project.get("tide_gauges", ()),
+                    zsmax_m=ev_depth_m + dem_m,
+                    transform=dst_transform,
+                    nodata_value=dem_nodata,
+                )
+                if gauge_hwm_val is not None:
+                    tiers_evaluated.append("gauge_hwm")
             event_results.append(
                 {
                     "id": str(ev["id"]),
@@ -1646,19 +2244,19 @@ def validate_region(
                     "scenario": ev_scenario,
                     "valid_land_points": ev_metrics["valid_land_points"],
                     "by_buffer": ev_metrics["by_buffer"],
-                    "tiers_evaluated": ["311"],
+                    "tiers_evaluated": tiers_evaluated,
                     "road_closures_validation": None,
-                    "gauge_hwm_validation": None,
+                    "gauge_hwm_validation": gauge_hwm_val,
                 }
             )
         if event_results:
             design_benchmark_payload = (
                 build_design_benchmark_summary(
-                    source=str(val_cfg.get("benchmark_source_name", "sfpuc_100yr")),
+                    source=primary_benchmark.source,
                     depth_threshold_m=depth_threshold_m,
                     metrics=best_metrics,
                 )
-                if has_design_benchmark
+                if primary_benchmark is not None
                 else None
             )
             ensemble_payload = aggregate_ensemble_311_metrics(

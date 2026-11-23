@@ -25,10 +25,10 @@
 ---
 
 ## Phase 2: Tier A (Physical Gauges) & Tier B (Pluggable Hydraulic Benchmarks)
-- [ ] Implement **Tier A** coastal/stream gauge & HWM (`NAVD88`) scoring (`RMSE`, `MAE`, `Bias`, peak timing error; `Grimley et al., 2025`; `Nederhoff et al., 2021`):
+- [x] Implement **Tier A** coastal/stream gauge & HWM (`NAVD88`) scoring (`RMSE`, `MAE`, `Bias`, peak timing error; `Grimley et al., 2025`; `Nederhoff et al., 2021`):
   - Run live coastal water-level verification against NOAA CO-OPS `9414290` (Presidio) for the 4 SF AR hindcasts.
   - Implement and offline-test USGS NWIS stream-gauge & STN High-Water Mark (`NGVD29 -> NAVD88` meters) scoring ready for live `11164500` validation in `v0.7`.
-- [ ] Generalize **Tier B** polygon-to-raster `HR / FAR / CSI` scoring into a pluggable benchmark interface (`Sanders et al., 2023`; `Schubert, Mach, & Sanders, 2024`) verified against SFPUC 100-Yr.
+- [x] Generalize **Tier B** polygon-to-raster `HR / FAR / CSI` scoring into a pluggable benchmark interface (`Sanders et al., 2023`; `Schubert, Mach, & Sanders, 2024`) verified against SFPUC 100-Yr.
 
 ---
 
