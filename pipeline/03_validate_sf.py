@@ -12,9 +12,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import rasterio  # rasterio must precede geopandas/pyogrio to avoid GDAL 3.10 double-free
+
+# isort: split
 import geopandas as gpd
 import numpy as np
-import rasterio
 import xarray as xr
 import yaml
 from hydromt_sfincs import SfincsModel
@@ -24,6 +26,7 @@ from rasterio.features import rasterize
 from rasterio.transform import Affine, from_origin, rowcol
 from rasterio.warp import reproject
 from scipy import ndimage, stats
+from scipy.spatial import cKDTree
 from shapely.geometry import box
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -1019,6 +1022,56 @@ def _ensure_sweep_run(
     return map_nc_path
 
 
+def downscale_quadtree_zsmax_to_grid(
+    face_x: np.ndarray,
+    face_y: np.ndarray,
+    face_zsmax: np.ndarray,
+    dem_m: np.ndarray,
+    dem_transform: Affine,
+    dem_nodata: float,
+    max_dist_m: float = 80.0,
+) -> np.ndarray:
+    """Downscale UGRID/quadtree face-centroid zsmax onto a 2 m DEM grid via cKDTree."""
+    fx = np.asarray(face_x, dtype=np.float64).ravel()
+    fy = np.asarray(face_y, dtype=np.float64).ravel()
+    fz = np.asarray(face_zsmax, dtype=np.float32).ravel()
+    valid_faces = np.isfinite(fx) & np.isfinite(fy) & np.isfinite(fz)
+
+    height, width = dem_m.shape
+    depth_m = np.full((height, width), dem_nodata, dtype=np.float32)
+    dem_valid = np.isfinite(dem_m)
+    if not np.isnan(dem_nodata):
+        dem_valid &= ~np.isclose(dem_m, float(dem_nodata))
+
+    if not np.any(valid_faces) or not np.any(dem_valid):
+        return depth_m
+
+    tree = cKDTree(np.column_stack((fx[valid_faces], fy[valid_faces])))
+    fz_valid = fz[valid_faces]
+
+    cols = np.arange(width, dtype=np.float64) + 0.5
+    rows = np.arange(height, dtype=np.float64) + 0.5
+    col_grid, row_grid = np.meshgrid(cols, rows)
+    gx = dem_transform.c + col_grid * dem_transform.a + row_grid * dem_transform.b
+    gy = dem_transform.f + col_grid * dem_transform.d + row_grid * dem_transform.e
+
+    mask_idx = np.flatnonzero(dem_valid)
+    pts = np.column_stack((gx.ravel()[mask_idx], gy.ravel()[mask_idx]))
+    dists, nn_idx = tree.query(pts, distance_upper_bound=float(max_dist_m))
+    within = np.isfinite(dists) & (nn_idx < len(fz_valid))
+
+    zs_flat = np.full(mask_idx.size, np.nan, dtype=np.float32)
+    zs_flat[within] = fz_valid[nn_idx[within]]
+
+    dem_vals = dem_m.ravel()[mask_idx].astype(np.float32)
+    out_vals = np.where(within, np.maximum(0.0, zs_flat - dem_vals), 0.0).astype(
+        np.float32
+    )
+    depth_flat = depth_m.ravel()
+    depth_flat[mask_idx] = out_vals
+    return depth_m
+
+
 def _evaluate_run(
     map_nc_path: Path,
     src_transform: Affine,
@@ -1037,17 +1090,30 @@ def _evaluate_run(
         zsmax_da = ds["zsmax"]
         if "timemax" in zsmax_da.dims:
             zsmax_da = zsmax_da.isel(timemax=-1)
-        zsmax_south_up = zsmax_da.values.astype(np.float32)
-
-    depth_m = downscale_zsmax_to_depth_m(
-        zsmax_south_up=zsmax_south_up,
-        src_transform=src_transform,
-        src_crs=project_crs,
-        dem_m=dem_m,
-        dst_transform=dst_transform,
-        dst_crs=project_crs,
-        dem_nodata=dem_nodata,
-    )
+        is_ugrid = "mesh2d_nFaces" in ds.dims or "mesh2d_face_x" in ds
+        if is_ugrid:
+            face_x = ds["mesh2d_face_x"].values
+            face_y = ds["mesh2d_face_y"].values
+            face_zsmax = zsmax_da.values.astype(np.float32)
+            depth_m = downscale_quadtree_zsmax_to_grid(
+                face_x=face_x,
+                face_y=face_y,
+                face_zsmax=face_zsmax,
+                dem_m=dem_m,
+                dem_transform=dst_transform,
+                dem_nodata=dem_nodata,
+            )
+        else:
+            zsmax_south_up = zsmax_da.values.astype(np.float32)
+            depth_m = downscale_zsmax_to_depth_m(
+                zsmax_south_up=zsmax_south_up,
+                src_transform=src_transform,
+                src_crs=project_crs,
+                dem_m=dem_m,
+                dst_transform=dst_transform,
+                dst_crs=project_crs,
+                dem_nodata=dem_nodata,
+            )
     metrics = compute_flood_metrics(
         depth_m=depth_m,
         obs_mask=obs_mask,

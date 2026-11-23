@@ -3,13 +3,27 @@ channels:
   - conda-forge
   - nodefaults
 dependencies:
-  - python>=3.11
-  - hydromt_sfincs
+  - python>=3.11,<3.12
   - gdal
   - rasterio
   - geopandas
   - rioxarray
   - pyproj
   - pyyaml
+  - xugrid>=0.15.1
+  - mapbox_earcut
+  - pyflwdir
+  - netcdf4
+  - aiohttp
+  - ipython
+  - boto3
+  - toml
+  - pip
   - ruff
   - pytest
+  # Pure-Python packages until hydromt >= 1.4.1 and hydromt_sfincs 2.0.0 land on conda-forge
+  - pip:
+      - hydromt==1.4.1
+      - hydromt-sfincs==2.0.0
+      - cht_tide
+      - rio-vrt

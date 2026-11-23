@@ -19,10 +19,10 @@ import xarray as xr
 import yaml
 from hydromt_sfincs import SfincsModel
 from pyproj import CRS
-from rasterio.features import rasterize
+from rasterio.features import rasterize, shapes
 from rasterio.transform import from_origin
 from rasterio.warp import Resampling, reproject
-from shapely.geometry import Point
+from shapely.geometry import Point, shape
 
 
 def assert_crs_equals(actual_crs: Any, expected_crs: str, label: str) -> None:
@@ -605,6 +605,82 @@ def _verify_processed_raster(path: Path, expected_crs: str) -> None:
         assert_crs_equals(ds.crs, expected_crs, str(path))
 
 
+def build_quadtree_refinement_polygons(
+    dem_m: np.ndarray,
+    transform: Any,
+    project_crs: str,
+    zmax_m: float = 15.0,
+    nodata_value: float = -9999.0,
+    min_area_m2: float = 10000.0,
+    refinement_level: int = 2,
+) -> gpd.GeoDataFrame:
+    """Build low-lying urban/coastal corridor polygons for SFINCS quadtree refinement."""
+    assert_crs_equals(project_crs, "EPSG:26910", "config.project.crs")
+    if refinement_level < 1:
+        raise ValueError(f"refinement_level must be >= 1, got {refinement_level}")
+
+    valid = np.isfinite(dem_m)
+    if not np.isnan(nodata_value):
+        valid &= ~np.isclose(dem_m, float(nodata_value))
+    refine_mask = (valid & (dem_m <= float(zmax_m))).astype(np.uint8)
+
+    geoms: list[Any] = []
+    for geom_dict, val in shapes(
+        refine_mask, mask=refine_mask == 1, transform=transform
+    ):
+        if int(val) != 1:
+            continue
+        poly = shape(geom_dict)
+        if poly.is_valid and poly.area >= float(min_area_m2):
+            geoms.append(poly)
+
+    if not geoms:
+        return gpd.GeoDataFrame(
+            {"refinement_level": pd.Series(dtype="int64")},
+            geometry=gpd.GeoSeries([], crs=project_crs),
+            crs=project_crs,
+        )
+    return gpd.GeoDataFrame(
+        {"refinement_level": [int(refinement_level)] * len(geoms)},
+        geometry=geoms,
+        crs=project_crs,
+    )
+
+
+def _apply_dem_valid_mask_to_quadtree(
+    sf: SfincsModel,
+    dem_arr: np.ndarray,
+    dem_transform: Any,
+    dem_nodata: float,
+) -> None:
+    """Mask quadtree cells whose centers fall on DEM NoData as inactive (msk = 0)."""
+    fx, fy = sf.quadtree_grid.face_coordinates
+    rows, cols = rasterio.transform.rowcol(dem_transform, fx, fy)
+    rows_arr = np.asarray(rows, dtype=np.int64)
+    cols_arr = np.asarray(cols, dtype=np.int64)
+    in_bounds = (
+        (rows_arr >= 0)
+        & (rows_arr < dem_arr.shape[0])
+        & (cols_arr >= 0)
+        & (cols_arr < dem_arr.shape[1])
+    )
+    valid = np.zeros(len(fx), dtype=bool)
+    sampled = dem_arr[
+        np.clip(rows_arr, 0, dem_arr.shape[0] - 1),
+        np.clip(cols_arr, 0, dem_arr.shape[1] - 1),
+    ]
+    valid[in_bounds] = np.isfinite(sampled[in_bounds])
+    if not np.isnan(dem_nodata):
+        valid[in_bounds] &= ~np.isclose(sampled[in_bounds], float(dem_nodata))
+
+    mask_var = "mask" if "mask" in sf.quadtree_grid.data else "msk"
+    da_msk = sf.quadtree_grid.data[mask_var]
+    da_msk = da_msk.where(xr.DataArray(valid, dims=da_msk.dims), np.uint8(0)).astype(
+        np.uint8
+    )
+    sf.quadtree_grid.data[mask_var] = da_msk
+
+
 def _build_and_run_single_scenario(
     cfg: Mapping[str, Any],
     scenario: Mapping[str, Any],
@@ -612,6 +688,7 @@ def _build_and_run_single_scenario(
     skip_run: bool,
     force: bool,
     drainage_tier_override: str | None = None,
+    quadtree_override: bool | None = None,
 ) -> None:
     scenario_id = str(scenario["id"])
     rain_key = str(scenario["rain"])
@@ -679,86 +756,177 @@ def _build_and_run_single_scenario(
         drainage_rate_mm_hr=precip_drainage,
     )
 
+    quadtree_cfg = dict(sfincs_cfg.get("quadtree") or {})
+    quadtree_enabled = (
+        bool(quadtree_override)
+        if quadtree_override is not None
+        else bool(quadtree_cfg.get("enabled", False))
+    )
+
     run_dir.mkdir(parents=True, exist_ok=True)
     drainage_label = (
         f"tier0={drainage_rate_mm_hr:.1f} mm/hr"
         if drainage_tier == "tier0"
         else f"{drainage_tier} (netamprfile)"
     )
-    print(
-        f"[02_build_sfincs] Building {scenario_id}: {grid_spec['mmax']}x{grid_spec['nmax']} @ "
-        f"{grid_spec['dx']} m (subgrid {grid_spec['nr_subgrid_pixels']}x), "
-        f"drainage={drainage_label} -> {run_dir}"
-    )
-
-    sf = SfincsModel(root=str(run_dir), mode="w+")
-    sf.data_catalog._fallback_lib = None
-    sf.setup_grid(
-        x0=grid_spec["x0"],
-        y0=grid_spec["y0"],
-        dx=grid_spec["dx"],
-        dy=grid_spec["dy"],
-        nmax=grid_spec["nmax"],
-        mmax=grid_spec["mmax"],
-        rotation=grid_spec["rotation"],
-        epsg=grid_spec["epsg"],
-    )
-    sf.setup_dep(datasets_dep=[{"elevtn": hydro_dem_path.resolve()}])
-    sf.setup_mask_active(zmin=-50.0, reset_mask=True)
+    if quadtree_enabled:
+        base_res_m = float(quadtree_cfg.get("base_resolution_m", 40.0))
+        refinement_levels = int(quadtree_cfg.get("refinement_levels", 2))
+        print(
+            f"[02_build_sfincs] Building {scenario_id}: quadtree "
+            f"{base_res_m:.0f}m -> {base_res_m / (2**refinement_levels):.0f}m, "
+            f"drainage={drainage_label} -> {run_dir}"
+        )
+    else:
+        print(
+            f"[02_build_sfincs] Building {scenario_id}: {grid_spec['mmax']}x{grid_spec['nmax']} @ "
+            f"{grid_spec['dx']} m (subgrid {grid_spec['nr_subgrid_pixels']}x), "
+            f"drainage={drainage_label} -> {run_dir}"
+        )
 
     with rasterio.open(hydro_dem_path) as dem_ds:
         dem_arr = dem_ds.read(1)
+        dem_transform = dem_ds.transform
         dem_nodata = float(dem_ds.nodata) if dem_ds.nodata is not None else float("nan")
-    if dem_arr.shape == (
-        grid_spec["nmax"] * grid_spec["nr_subgrid_pixels"],
-        grid_spec["mmax"] * grid_spec["nr_subgrid_pixels"],
-    ):
-        y_coords = sf.grid["msk"].coords["y"].values.ravel()
-        y_ascending = bool(y_coords[0] < y_coords[-1])
-        valid_mask = compute_valid_active_mask(
-            dem_2m=dem_arr,
-            nodata_value=dem_nodata,
-            nr_subgrid_pixels=grid_spec["nr_subgrid_pixels"],
-            y_ascending=y_ascending,
-        )
-        da_msk = sf.grid["msk"].where(valid_mask, np.uint8(0)).astype(np.uint8)
-        sf.set_grid(da_msk, name="msk")
-        if np.any(da_msk >= 1):
-            sf.set_geoms(da_msk.where(da_msk <= 1, 1).raster.vectorize(), "region")
 
+    sf = SfincsModel(root=str(run_dir), mode="w+")
     outflow_bounds = bool(sfincs_cfg.get("outflow_perimeter_bounds", True))
-    if tidal_file:
-        coastal_zmax_m = float(sfincs_cfg.get("coastal_bound_zmax_m", 0.5))
-        sf.setup_mask_bounds(
-            btype="waterlevel",
-            zmax=coastal_zmax_m,
-            reset_bounds=True,
+    coastal_zmax_m = float(sfincs_cfg.get("coastal_bound_zmax_m", 0.5))
+
+    if quadtree_enabled:
+        base_res_m = float(quadtree_cfg.get("base_resolution_m", 40.0))
+        refinement_levels = int(quadtree_cfg.get("refinement_levels", 2))
+        refine_zmax_m = float(quadtree_cfg.get("refine_zmax_m", 15.0))
+        min_poly_area_m2 = float(quadtree_cfg.get("min_polygon_area_m2", 10000.0))
+        qt_grid_spec = compute_sfincs_grid_spec(
+            bbox_utm=domain["bbox_epsg26910"],
+            grid_resolution_m=base_res_m,
+            subgrid_resolution_m=float(domain["subgrid_resolution_m"]),
+            project_crs=project_crs,
         )
-        if outflow_bounds:
-            sf.setup_mask_bounds(
+        refine_gdf = build_quadtree_refinement_polygons(
+            dem_m=dem_arr,
+            transform=dem_transform,
+            project_crs=project_crs,
+            zmax_m=refine_zmax_m,
+            nodata_value=dem_nodata,
+            min_area_m2=min_poly_area_m2,
+            refinement_level=refinement_levels,
+        )
+        sf.quadtree_grid.create(
+            x0=qt_grid_spec["x0"],
+            y0=qt_grid_spec["y0"],
+            nmax=qt_grid_spec["nmax"],
+            mmax=qt_grid_spec["mmax"],
+            dx=qt_grid_spec["dx"],
+            dy=qt_grid_spec["dy"],
+            rotation=qt_grid_spec["rotation"],
+            epsg=qt_grid_spec["epsg"],
+            refinement_polygons=refine_gdf if len(refine_gdf) > 0 else None,
+        )
+        sf.quadtree_elevation.create(
+            elevation_list=[{"elevation": str(hydro_dem_path.resolve())}]
+        )
+        sf.quadtree_mask.create_active(zmin=-50.0, reset_mask=True)
+        _apply_dem_valid_mask_to_quadtree(
+            sf=sf,
+            dem_arr=dem_arr,
+            dem_transform=dem_transform,
+            dem_nodata=dem_nodata,
+        )
+        if tidal_file:
+            sf.quadtree_mask.create_boundary(
+                btype="waterlevel",
+                zmax=coastal_zmax_m,
+                reset_bounds=True,
+            )
+            if outflow_bounds:
+                sf.quadtree_mask.create_boundary(
+                    btype="outflow",
+                    zmin=coastal_zmax_m,
+                    reset_bounds=False,
+                )
+        elif outflow_bounds:
+            sf.quadtree_mask.create_boundary(
                 btype="outflow",
-                zmin=coastal_zmax_m,
+                zmin=-9999.0,
                 reset_bounds=False,
             )
-    elif outflow_bounds:
-        sf.setup_mask_bounds(
-            btype="outflow",
-            zmin=-9999.0,
-            reset_bounds=False,
+        sf.quadtree_subgrid.create(
+            elevation_list=[{"elevation": str(hydro_dem_path.resolve())}],
+            roughness_list=[{"manning": str(manning_n_path.resolve())}],
+            nr_levels=int(sfincs_cfg.get("subgrid_nbins", 10)),
+            nr_subgrid_pixels=qt_grid_spec["nr_subgrid_pixels"],
+            max_gradient=float(sfincs_cfg.get("subgrid_max_gradient", 5.0)),
+            write_dep_tif=False,
+        )
+        sf.quadtree_infiltration.create_cn(
+            cn=curve_number_path.resolve(),
+            antecedent_moisture=None,
+            reproj_method=str(sfincs_cfg.get("cn_reproj_method", "med")),
+        )
+    else:
+        sf.grid.create(
+            x0=grid_spec["x0"],
+            y0=grid_spec["y0"],
+            dx=grid_spec["dx"],
+            dy=grid_spec["dy"],
+            nmax=grid_spec["nmax"],
+            mmax=grid_spec["mmax"],
+            rotation=grid_spec["rotation"],
+            epsg=grid_spec["epsg"],
+        )
+        sf.elevation.create(
+            elevation_list=[{"elevation": str(hydro_dem_path.resolve())}]
+        )
+        sf.mask.create_active(zmin=-50.0, reset_mask=True)
+        if dem_arr.shape == (
+            grid_spec["nmax"] * grid_spec["nr_subgrid_pixels"],
+            grid_spec["mmax"] * grid_spec["nr_subgrid_pixels"],
+        ):
+            y_coords = sf.grid.data["msk"].coords["y"].values.ravel()
+            y_ascending = bool(y_coords[0] < y_coords[-1])
+            valid_mask = compute_valid_active_mask(
+                dem_2m=dem_arr,
+                nodata_value=dem_nodata,
+                nr_subgrid_pixels=grid_spec["nr_subgrid_pixels"],
+                y_ascending=y_ascending,
+            )
+            da_msk = sf.grid.data["msk"].where(valid_mask, np.uint8(0)).astype(np.uint8)
+            sf.grid.data["msk"] = da_msk
+
+        if tidal_file:
+            sf.mask.create_boundary(
+                btype="waterlevel",
+                zmax=coastal_zmax_m,
+                reset_bounds=True,
+            )
+            if outflow_bounds:
+                sf.mask.create_boundary(
+                    btype="outflow",
+                    zmin=coastal_zmax_m,
+                    reset_bounds=False,
+                )
+        elif outflow_bounds:
+            sf.mask.create_boundary(
+                btype="outflow",
+                zmin=-9999.0,
+                reset_bounds=False,
+            )
+
+        sf.subgrid.create(
+            elevation_list=[{"elevation": str(hydro_dem_path.resolve())}],
+            roughness_list=[{"manning": str(manning_n_path.resolve())}],
+            nbins=int(sfincs_cfg.get("subgrid_nbins", 10)),
+            nr_subgrid_pixels=grid_spec["nr_subgrid_pixels"],
+            max_gradient=float(sfincs_cfg.get("subgrid_max_gradient", 5.0)),
+        )
+        sf.infiltration.create_cn(
+            cn=curve_number_path.resolve(),
+            antecedent_moisture=None,
+            reproj_method=str(sfincs_cfg.get("cn_reproj_method", "med")),
         )
 
-    sf.setup_subgrid(
-        datasets_dep=[{"elevtn": hydro_dem_path.resolve()}],
-        datasets_rgh=[{"manning": manning_n_path.resolve()}],
-        nr_subgrid_pixels=grid_spec["nr_subgrid_pixels"],
-        nbins=int(sfincs_cfg.get("subgrid_nbins", 10)),
-        max_gradient=float(sfincs_cfg.get("subgrid_max_gradient", 5.0)),
-    )
-    sf.setup_cn_infiltration(
-        cn=curve_number_path.resolve(),
-        antecedent_moisture=None,
-        reproj_method=str(sfincs_cfg.get("cn_reproj_method", "med")),
-    )
     config_kwargs: dict[str, Any] = {
         "tref": tref,
         "tstart": tref,
@@ -769,6 +937,9 @@ def _build_and_run_single_scenario(
         "huthresh": float(sfincs_cfg.get("huthresh_m", 0.01)),
         "advection": int(sfincs_cfg.get("advection", 1)),
     }
+    if quadtree_enabled:
+        config_kwargs["qtrfile"] = "sfincs.nc"
+        config_kwargs["sbgfile"] = "sfincs.sbg"
     if drainage_tier == "tier0":
         config_kwargs["precipfile"] = "sfincs.prp"
     else:
@@ -777,9 +948,9 @@ def _build_and_run_single_scenario(
         config_kwargs["bndfile"] = "sfincs.bnd"
         config_kwargs["bzsfile"] = "sfincs.bzs"
 
-    sf.setup_config(**config_kwargs)
+    sf.config.update(config_kwargs)
     if drainage_tier == "tier0":
-        sf.set_forcing(precip_series.to_xarray(), name="precip")
+        sf.precipitation.set(precip_series.to_xarray(), name="precip")
     else:
         drainage_res_m = float(sfincs_cfg.get("drainage_grid_res_m", 40.0))
         imp, lc, dem_drain, polder_mask, x_coords, y_coords = (
@@ -825,7 +996,7 @@ def _build_and_run_single_scenario(
             y_coords=y_coords,
             project_crs=project_crs,
         )
-        sf.set_forcing(precip_2d_da, name="precip_2d")
+        sf.precipitation.set(precip_2d_da, name="precip_2d")
 
     sf.write()
 
@@ -893,6 +1064,7 @@ def build_sfincs(
     run_all: bool = False,
     drainage_rate_mm_hr: float | None = None,
     drainage_tier: str | None = None,
+    quadtree: bool | None = None,
     skip_run: bool = False,
     force: bool = False,
 ) -> None:
@@ -915,6 +1087,7 @@ def build_sfincs(
             skip_run=skip_run,
             force=force,
             drainage_tier_override=drainage_tier,
+            quadtree_override=quadtree,
         )
 
 
@@ -951,6 +1124,12 @@ def main() -> None:
         help="Optional override for storm-drain abstraction tier.",
     )
     parser.add_argument(
+        "--quadtree",
+        action="store_true",
+        default=None,
+        help="Force-enable SFINCS quadtree mesh refinement.",
+    )
+    parser.add_argument(
         "--skip-run",
         action="store_true",
         help="Write SFINCS model files without executing the Docker solver.",
@@ -967,6 +1146,7 @@ def main() -> None:
         run_all=args.all_scenarios,
         drainage_rate_mm_hr=args.drainage_rate_mm_hr,
         drainage_tier=args.drainage_tier,
+        quadtree=args.quadtree,
         skip_run=args.skip_run,
         force=args.force,
     )

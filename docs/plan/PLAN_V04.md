@@ -27,8 +27,8 @@
 - [x] Extend `pipeline/03_validate_sf.py` to score the multi-storm ensemble and report per-event and ensemble-mean `ROC-AUC`, capture rate, and lift across `0 / 25 / 50 m` buffers.
 
 ## Phase 4 (Upgrade 4): SFINCS Quadtree Mesh Refinement (`Leijnse et al., 2021`)
-- [ ] Add optional quadtree refinement configuration (`10 m` cells in low-lying urban/coastal corridors, `40–80 m` cells on steep uplands) in `pipeline/02_build_sfincs.py`.
-- [ ] Benchmark `0 m` / `25 m` 311 hit rate, SFPUC `CSI`, and Docker runtime on `sf_citywide` against the uniform `20 m` grid.
+- [x] Add optional quadtree refinement configuration (`10 m` cells in low-lying urban/coastal corridors, `40–80 m` cells on steep uplands) in `pipeline/02_build_sfincs.py`.
+- [x] Benchmark `0 m` / `25 m` 311 hit rate, SFPUC `CSI`, and Docker runtime on `sf_citywide` against the uniform `20 m` grid.
 
 ## Phase 5: Formal v0.2 vs. v0.4 Ablation Report & Living Methods Sync
 - [ ] Generate `docs/reports/sf_v02_vs_v04_ablation.md` comparing each upgrade side-by-side against frozen v0.2; retain only changes that demonstrably improve skill or physical realism.

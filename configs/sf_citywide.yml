@@ -327,6 +327,12 @@ sfincs_model:
   cn_reproj_method: "med"
   outflow_perimeter_bounds: true
   coastal_bound_zmax_m: 0.5
+  quadtree:
+    enabled: false
+    base_resolution_m: 40.0
+    refinement_levels: 2  # 40m -> 20m -> 10m in low-lying urban/coastal corridors
+    refine_zmax_m: 15.0
+    min_polygon_area_m2: 10000.0
 
 validation:
   depth_threshold_m: 0.1524
