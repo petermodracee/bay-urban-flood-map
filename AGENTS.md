@@ -44,6 +44,7 @@ The repo has two decoupled halves connected only by static files in `data/web_ou
 - **Attribution:** Keep commit messages clean (no AI/agent footers); when a PR is AI-assisted, include a brief note and concrete verification results in the PR description.
 - **Verify Before Committing:** Run the relevant verification command (`pytest` or `npm run build`) before creating a commit.
 - **Remote Safety:** Never force-push (`--force`) or rewrite shared history. Ask for confirmation before pushing to remote or opening a pull request.
+- **Releases:** Cut a clean SemVer tag + GitHub Release on `main` when a milestone closes (`v0.x.0` with `--prerelease` until `v1.0.0`, no tag suffix) targeting the milestone's final merge commit and linking the milestone plan and validation report; ask for confirmation before publishing a release.
 - All CI checks must pass before merge (if/when configured).
 
 ## Boundaries (Ask First)

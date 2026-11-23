@@ -25,3 +25,9 @@ This directory (`docs/plan/`) tracks active milestone checklists, completed plan
   - **Public Methodology page** (linked from `web/`): plain-English explanation of rain-on-grid + tide-locked storm drain modeling, visual workflow diagram, screening-level disclaimers, and Bay Area validation highlights for general users.
   - **Technical Methodology reference:** web-readable synthesis of [`METHODS.md`](../METHODS.md), [`VALIDATION_SPEC.md`](../VALIDATION_SPEC.md), [`DECISIONS.md`](../DECISIONS.md), and [`DATA_SOURCES.md`](../DATA_SOURCES.md) with governing equations, peer-reviewed DOIs, and v0.2–v0.6 ablation results.
   - **Contributor "How-To" Run Guide:** step-by-step walkthrough to set up `conda-forge` + Docker (`deltares/sfincs-cpu`), fetch/place manual inputs (e.g., SFEI Bay Shore Inventory), run `00_fetch_data.py` through `04_export_cog.py`, and preview exported COGs locally in `web/`.
+
+## Release Convention
+Each completed milestone is tagged on `main` using clean SemVer (`v0.x.0`, marked `--prerelease` on GitHub until `v1.0.0`, no tag suffix) targeting the milestone's final merge commit, with release notes summarizing key validation metrics and linking the milestone plan and report:
+```bash
+gh release create v0.x.0 --target <merge_commit_sha> --prerelease --title "v0.x.0 — <Milestone Title>"
+```
