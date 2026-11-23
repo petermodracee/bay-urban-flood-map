@@ -10,7 +10,7 @@ Operational engineering specification for `pipeline/` and `configs/`. For full s
 - **v0.5 (In Progress — see [`docs/plan/PLAN_V05.md`](plan/PLAN_V05.md) & [`docs/VALIDATION_SPEC.md`](VALIDATION_SPEC.md)):** 5-tier open multi-source validation layer (NOAA/USGS gauges, pluggable hydraulic benchmarks, Caltrans/CHP road closures, 311 + Google Research Groundsource, OpenFEMA NFIP) built and baseline-scored on frozen SF v0.4 outputs.
 - **v0.6 (Planned — see [`docs/plan/PLAN_V06.md`](plan/PLAN_V06.md)):** SF multi-tier diagnostic audit & anti-overfitting calibration pass (temporal holdout storms, cross-tier consensus, mean-rate-matched Tier 1, 5-day MRMS antecedent moisture, Tier C underpass fixes), plus public viewer validation overlays, historical AR selector, public methodology page, and Cloudflare R2/Pages republish (`v0.6.0`).
 - **v0.7 (Planned):** San Francisquito Creek / East Palo Alto separate-MS4 pilot with zero-shot transfer baseline, pumped-polder handling (`sfincs.pump`), optional Tier 2 municipal overrides, and multi-region `web/` switching.
-- **v1.0 (Planned):** Regional mosaic across ~100–150 Bay Area sub-basins.
+- **v1.0 (Planned):** Urban Bay Core mosaic across SF, Peninsula, South Bay, and East Bay flatlands (SF, San Mateo, Santa Clara, Alameda, West Contra Costa); North Bay & Delta river basins (`sfincs.dis`) follow in `v1.1+`.
 
 ## 2. Core Data Sources & Invariants
 Full licensing and provenance live in [`docs/DATA_SOURCES.md`](DATA_SOURCES.md).

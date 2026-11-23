@@ -25,6 +25,7 @@
 - [ ] Add **Viewer UX & Metadata Upgrades**:
   - Replace hardcoded `"v0.2"` / `"Dec 31, 2022 (424)"` labels with live `manifest.json` metadata (`version`, `rain_source`, `drainage_tier`, dynamic report counts).
   - Add **shareable URL hash state** (`#storm=...&slr=...&metric=...&lat=...&lng=...&z=...`), **quick-jump hotspot chips** (Alemany, SOMA / Mission Bay, Bayview / Islais Creek, Sunset / Wawona), and a **bounded address/intersection search** (Nominatim/Photon) that flies to the location and queries depth.
+  - Add an optional **"3D Terrain" toggle** (`map.setTerrain` using free AWS Terrarium DEM tiles + `~55°` camera pitch, verifying COG raster draping in the browser).
 - [ ] Add a concise **Public Methodology** modal/page linked from `web/` (plain-English overview, workflow diagram, screening-level disclaimers, validation highlights, and links to [`docs/METHODS.md`](../METHODS.md) & [`docs/VALIDATION_SPEC.md`](../VALIDATION_SPEC.md)).
 - [ ] Verify with `cd web && node --test src/*.test.js && npm run lint && npm run build`.
 
