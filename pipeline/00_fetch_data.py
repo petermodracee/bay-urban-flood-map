@@ -48,8 +48,11 @@ NOAA_COOPS_URL = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
 OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 CALTRANS_D4_LCS_URL = "https://cwwp2.dot.ca.gov/data/d4/lcs/lcsStatusD04.json"
 CALTRANS_D4_CHP_URL = "https://cwwp2.dot.ca.gov/data/d4/chp/chpIncidentsD04.json"
-OPENFEMA_NFIP_CLAIMS_URL = "https://www.fema.gov/api/open/v2/FimaNfipClaims"
+OPENFEMA_NFIP_CLAIMS_URL = "https://www.fema.gov/api/open/v3/NfipClaims"
 TIGERWEB_TRACTS_URL = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/0/query"
+GROUNDSOURCE_PARQUET_URL = (
+    "https://zenodo.org/records/18647054/files/groundsource_2026.parquet?download=1"
+)
 FLOOD_ROAD_CLOSURE_KEYWORDS = (
     "flood",
     "flooding",
@@ -758,7 +761,9 @@ def _normalize_census_tract(value: Any) -> str | None:
     digits = "".join(ch for ch in text if ch.isdigit())
     if not digits:
         return None
-    return digits.zfill(11) if len(digits) <= 11 else digits
+    if len(digits) >= 12:
+        return digits[:11]
+    return digits.zfill(11)
 
 
 def _safe_float(value: Any) -> float:
@@ -787,7 +792,12 @@ def parse_openfema_nfip_claims(
         "total_paid_usd",
     ]
     if isinstance(payload, Mapping):
-        records = payload.get("FimaNfipClaims") or payload.get("data") or []
+        records = (
+            payload.get("NfipClaims")
+            or payload.get("FimaNfipClaims")
+            or payload.get("data")
+            or []
+        )
     else:
         records = payload
 
@@ -796,7 +806,9 @@ def parse_openfema_nfip_claims(
     for rec in records:
         if not isinstance(rec, Mapping):
             continue
-        tract = _normalize_census_tract(rec.get("censusTract"))
+        tract = _normalize_census_tract(
+            rec.get("censusTract") or rec.get("censusGeoid")
+        )
         if tract is None:
             continue
         if county_norm is not None:
@@ -1730,6 +1742,67 @@ def _fetch_ensemble_road_closures(
         print(f"[00_fetch_data] Saved {len(gdf)} Tier C road closures -> {out_path}")
 
 
+def _read_parquet_clipped(
+    source: str | Path, bbox_tuple: tuple[float, float, float, float]
+) -> gpd.GeoDataFrame:
+    """Read a GeoParquet file/URL and clip to (xmin, ymin, xmax, ymax) in WGS84."""
+    xmin, ymin, xmax, ymax = bbox_tuple
+    try:
+        return gpd.read_parquet(source, bbox=bbox_tuple)
+    except ValueError:
+        gdf = gpd.read_parquet(source)
+        if gdf.empty:
+            return gdf
+        return gdf.cx[xmin:xmax, ymin:ymax].copy()
+
+
+def _fetch_groundsource(
+    cfg: Mapping[str, Any],
+    buffered_wgs84_bbox: Sequence[float],
+    force: bool = False,
+) -> None:
+    """Fetch optional Tier D Groundsource GeoParquet clipped to the domain bbox."""
+    sources_cfg = cfg.get("validation", {}).get("sources") or {}
+    gs_raw = sources_cfg.get("groundsource_file")
+    if not gs_raw:
+        return
+    out_path = Path(gs_raw)
+    if out_path.exists() and not force:
+        print(f"[00_fetch_data] Cached Tier D Groundsource -> {out_path}")
+        return
+
+    url = str(sources_cfg.get("groundsource_url") or GROUNDSOURCE_PARQUET_URL)
+    bbox_tuple = tuple(float(v) for v in buffered_wgs84_bbox)
+
+    gdf: gpd.GeoDataFrame | None = None
+    try:
+        gdf = _read_parquet_clipped(url, bbox_tuple)
+    except Exception:
+        if not url.startswith(("http://", "https://")):
+            raise
+        gdf = None
+
+    if gdf is None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_parquet = Path(tmp_dir) / "groundsource_download.parquet"
+            with requests.get(url, stream=True, timeout=300) as resp:
+                resp.raise_for_status()
+                with tmp_parquet.open("wb") as fh:
+                    for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                        if chunk:
+                            fh.write(chunk)
+            gdf = _read_parquet_clipped(tmp_parquet, bbox_tuple)
+
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if out_path.suffix.lower() in {".parquet", ".geoparquet"}:
+        gdf.to_parquet(out_path)
+    else:
+        gdf.to_file(out_path, driver="GPKG")
+    print(f"[00_fetch_data] Saved {len(gdf)} Tier D Groundsource records -> {out_path}")
+
+
 def _fetch_nfip_claims(
     cfg: Mapping[str, Any],
     buffered_wgs84_bbox: Sequence[float],
@@ -1754,8 +1827,9 @@ def _fetch_nfip_claims(
         if county_fips
         else "state eq 'CA'"
     )
+    tract_field = "censusTract" if "/v2/" in api_url else "censusGeoid"
     select_fields = (
-        "censusTract,countyCode,yearOfLoss,"
+        f"{tract_field},countyCode,yearOfLoss,"
         "amountPaidOnBuildingClaim,amountPaidOnContentsClaim,"
         "amountPaidOnIncreasedCostOfComplianceClaim"
     )
@@ -1775,7 +1849,8 @@ def _fetch_nfip_claims(
             timeout=DEFAULT_HTTP_TIMEOUT_S,
         )
         resp.raise_for_status()
-        batch = resp.json().get("FimaNfipClaims") or []
+        payload = resp.json()
+        batch = payload.get("NfipClaims") or payload.get("FimaNfipClaims") or []
         if not batch:
             break
         all_records.extend(batch)
@@ -1916,6 +1991,11 @@ def fetch_data(config_path: Path, force: bool = False) -> None:
         force=force,
     )
     _fetch_ensemble_road_closures(
+        cfg=cfg,
+        buffered_wgs84_bbox=buffered_wgs84_bbox,
+        force=force,
+    )
+    _fetch_groundsource(
         cfg=cfg,
         buffered_wgs84_bbox=buffered_wgs84_bbox,
         force=force,

@@ -410,3 +410,45 @@ def test_validate_region_wires_tier_e_nfip_end_to_end(tmp_path: Path) -> None:
     assert nfip_res["n_tracts"] == 3
     assert nfip_res["total_claims"] == 10
     assert math.isclose(nfip_res["spearman_rho"], 1.0, abs_tol=1e-6)
+
+
+def test_fetch_groundsource_clips_local_parquet_to_bbox(tmp_path: Path) -> None:
+    src_parquet = tmp_path / "global_groundsource.parquet"
+    out_parquet = tmp_path / "sf_groundsource.parquet"
+    src_gdf = gpd.GeoDataFrame(
+        [
+            {
+                "uuid": "in-sf",
+                "start_date": "2023-03-14",
+                "end_date": "2023-03-15",
+                "area_km2": 3.2,
+                "geometry": box(-122.45, 37.74, -122.42, 37.77),
+            },
+            {
+                "uuid": "outside-sf",
+                "start_date": "2023-03-14",
+                "end_date": "2023-03-15",
+                "area_km2": 4.5,
+                "geometry": box(-118.30, 34.00, -118.25, 34.05),
+            },
+        ],
+        crs="EPSG:4326",
+    )
+    src_gdf.to_parquet(src_parquet)
+
+    cfg = {
+        "validation": {
+            "sources": {
+                "groundsource_file": str(out_parquet),
+                "groundsource_url": str(src_parquet),
+            }
+        }
+    }
+    _FETCH._fetch_groundsource(
+        cfg=cfg,
+        buffered_wgs84_bbox=(-122.55, 37.68, -122.34, 37.84),
+        force=False,
+    )
+    assert out_parquet.exists()
+    clipped = gpd.read_parquet(out_parquet)
+    assert list(clipped["uuid"]) == ["in-sf"]

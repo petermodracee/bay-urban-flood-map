@@ -390,8 +390,10 @@ validation:
       road_closures_file: null
       gauges_file: "data/raw/sf_citywide/sf_tide_obs_20240204.csv"
   sources:
-    groundsource_file: null
-    nfip_claims_file: null
+    groundsource_file: "data/raw/sf_citywide/sf_groundsource_floods.parquet"
+    groundsource_url: "https://zenodo.org/records/18647054/files/groundsource_2026.parquet?download=1"
+    nfip_claims_file: "data/raw/sf_citywide/sf_nfip_claims_tracts.gpkg"
+    nfip_county_fips: "06075"
   report_markdown_file: "docs/reports/sf_v02_validation.md"
   sweep_drainage_rates_mm_hr: [5.0]
   sweep_manning_n_paved: [0.030]

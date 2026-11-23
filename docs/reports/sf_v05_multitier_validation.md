@@ -13,8 +13,8 @@
 | **Tier A: Physical Gauges & HWMs** | NOAA CO-OPS `9414290` (Presidio), USGS NWIS & STN HWMs (`Grimley et al., 2025`; `Nederhoff et al., 2021`) | Live NOAA CO-OPS scored across 4 ARs; USGS NWIS/STN (`NGVD29 -> NAVD88`) offline-tested | **4-AR Presidio `9414290`:** `RMSE = 0.0013–0.0019 m`, `MAE = 0.0010–0.0015 m`, `Bias = +0.0007 to +0.0013 m`, peak timing error `0.0 min`, `NSE = 1.0` |
 | **Tier B: Hydraulic Benchmarks** | SFPUC 100-Yr Storm Flood Risk Map (`>= 0.1524 m` / `6 in`; `Sanders et al., 2023`; `Schubert, Mach, & Sanders, 2024`) | Pluggable `BenchmarkSpec` interface implemented & offline-tested | **Citywide (`v0.4` frozen / `v0.5` run):** `HR = 0.3887 / 0.3900`, `FAR = 0.7086 / 0.7189`, `CSI = 0.1998 / 0.1953` |
 | **Tier C: Roadway Closures** | Caltrans D4 LCS / CHP / 511 SF Bay (`Praharaj et al., 2021`) | Parsers (`00_fetch_data.py`) & road-snapped `25 m / 50 m` + road-control lift / `ROC-AUC` scorer (`03_validate_sf.py`) offline-tested | `road_closures_file: null` in `configs/sf_citywide.yml` (live real-time feeds lack free historical backfill; ready for live AR capture) |
-| **Tier D: Civic 311 + Groundsource** | DataSF 311 (`1,535` pts across 4 ARs; `Agonafir et al., 2022`; `Lerma et al., 2025`) + Google Research Groundsource (`CC BY 4.0`, `area_km2 <= 25`) | 4-AR MRMS ensemble scored; Groundsource sub-basin crosscheck & holdout discovery offline-tested | **4-AR MRMS `25 m` mean:** `36.89%` capture, `1.249x` lift, `ROC-AUC = 0.5886` (`50 m`: `57.24%` cap, `1.076x` lift, `0.5791` AUC); `groundsource_file: null` |
-| **Tier E: Structural Loss (NFIP)** | OpenFEMA NFIP Redacted Claims (`FimaNfipClaims`) vs. modeled building exposure (`Wing et al., 2020`) | OpenFEMA parser + TIGERweb tract join (`00_fetch_data.py`) & tract exposure Spearman $\rho$ (`03_validate_sf.py`) offline-tested | `nfip_claims_file: null` in `configs/sf_citywide.yml` (ready for live OpenFEMA county `06075` fetch) |
+| **Tier D: Civic 311 + Groundsource** | DataSF 311 (`1,535` pts across 4 ARs; `Agonafir et al., 2022`; `Lerma et al., 2025`) + Google Research Groundsource (`CC BY 4.0`, `area_km2 <= 25`) | 4-AR MRMS ensemble & live SF Groundsource (`332` filtered records / `41` sub-basins) scored | **4-AR MRMS `25 m` mean:** `36.89%` capture, `1.249x` lift, `ROC-AUC = 0.5886` (`50 m`: `57.24%` cap, `1.076x` lift, `0.5791` AUC); **Groundsource:** `1.000` presence HR, `0.9024` accuracy (`37/37` GS-present sub-basins matched) |
+| **Tier E: Structural Loss (NFIP)** | OpenFEMA NFIP Redacted Claims (`v3/NfipClaims`) vs. modeled building exposure (`Wing et al., 2020`) | Live OpenFEMA county `06075` + TIGERweb tracts (`259` tracts, `92` claims, `\$1.54M` paid) scored | **`claim_count` vs. `exposed_buildings`:** $\rho = 0.1087$ ($p = 0.0807$); **`claim_count` vs. `flooded_land_area_m2`:** $\rho = 0.2289$ ($p = 0.0002$) |
 
 ---
 
@@ -59,6 +59,28 @@ Per-event and ensemble-mean scores (`>= 0.05 m` depth threshold against `2,000` 
 | `ar_20240204` | `141` | `0.00% / 0.000x / 0.4978` | `0.71% / 0.284x / 0.5000` | `2.13% / 0.413x / 0.4798` |
 | **Ensemble Mean** | **1,535** | **`3.03% / 1.426x / 0.5109`** | **`36.89% / 1.249x / 0.5886`** | **`57.24% / 1.076x / 0.5791`** |
 
+#### Groundsource Sub-Basin Cross-Check & Holdout Storm Discovery (`sf_groundsource_floods.parquet`)
+
+From `517` SF-clipped Groundsource records (`332` retained after `area_km2 <= 25` filtering) evaluated across `41` SF sub-basins (`>= 0.05 m` modeled depth):
+- **Sub-Basin Presence:** `37 / 37` Groundsource-flooded sub-basins are captured by the model (`presence_hit_rate = 1.000`, `presence_accuracy = 0.9024`, `4` model-only sub-basins, `0` Groundsource-only).
+- **Matched Ensemble Events:** All `4` modeled ARs (`ar_20211024`, `ar_20221231`, `ar_20230109`, `ar_20240204`) appear in Groundsource.
+- **Top Untouched Holdout Candidates Outside the 4-AR Set:** `2024-11-22` to `2024-11-23` (`8` records, `25.897 km^2` — recent MRMS-era AR) and `2019-12-07` to `2019-12-08` (`12` records, `40.519 km^2`).
+
+### 2.4 Tier E: OpenFEMA NFIP Structural Loss Cross-Check (`sf_citywide_100yr_slr0ft`)
+
+Evaluated across `259` San Francisco census tracts (`44` tracts with claims, `92` total claims, `\$1,536,935.05` total paid):
+
+| Comparison | Spearman $\rho$ | $p$-value |
+| --- | ---: | ---: |
+| `claim_count` vs. `exposed_buildings` (primary) | `0.1087` | `0.0807` |
+| `claim_count` vs. `exposed_building_area_m2` | `0.1125` | `0.0707` |
+| `claim_count` vs. `exposed_building_fraction` | `0.1073` | `0.0848` |
+| `total_paid_usd` vs. `exposed_buildings` | `0.0454` | `0.4667` |
+| `claim_count` vs. `flooded_land_area_m2` | `0.2289` | `0.0002` |
+| `total_paid_usd` vs. `flooded_land_area_m2` | `0.1734` | `0.0051` |
+
+*Diagnostic note:* Tract `flooded_land_area_m2` correlates more strongly with NFIP claims ($\rho = 0.2289$, $p = 0.0002$) than `exposed_buildings` ($\rho = 0.1087$), consistent with `building_elevation_bump_m: 3.0` deflecting ponded water around building footprints.
+
 ---
 
 ## 3. Diagnostic Failure Modes (Targets for `v0.6` Calibration)
@@ -82,7 +104,7 @@ Per [`docs/VALIDATION_SPEC.md`](../VALIDATION_SPEC.md) §3.4, all `v0.6` calibra
   - `ar_20211024` (Oct 24, 2021 Atmospheric River — `567` pts)
   - `ar_20221231` (Dec 31, 2022 Atmospheric River — `424` pts)
   - `ar_20230109` (Jan 9, 2023 Atmospheric River — `403` pts)
-- **Untouched Holdout Set (1+ ARs, `141+` 311 points):**
+- **Untouched Holdout Set (2 ARs, `141+` 311 points):**
   - `ar_20240204` (Feb 4, 2024 Atmospheric River — `141` pts, **never tuned on**)
-  - Plus `1` additional Groundsource-flagged Bay Area AR selected via `discover_holdout_storm_candidates()` when Groundsource GeoParquet is staged.
+  - `ar_20241122` (Nov 22–23, 2024 Atmospheric River — `8` Groundsource records, `25.897 km^2`, selected via `discover_holdout_storm_candidates()`)
 - **v0.6 Retention Gate:** A candidate mechanism is retained only if it (a) holds neutral or improves on the untouched holdout set, (b) improves **at least two independent tiers** without regressing SFPUC `CSI` below `0.1998`, and (c) clears the parsimony threshold (`>= +0.01` `ROC-AUC` or `>= +0.005` `CSI`).
