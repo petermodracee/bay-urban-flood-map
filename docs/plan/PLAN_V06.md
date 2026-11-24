@@ -66,9 +66,9 @@ From [`docs/reports/sf_v05_multitier_validation.md`](../reports/sf_v05_multitier
 ---
 
 ## Phase 4: Public & Technical Methodology Pages (`web/` + `docs/`)
-- [ ] Add a plain-English **Public Methodology** modal/page linked from `web/` populated with final v0.6 metrics (visual workflow diagram, screening-level disclaimers, and Bay Area validation highlights).
-- [ ] Add a **Technical Methodology** page/view synthesizing [`docs/METHODS.md`](../METHODS.md), [`docs/VALIDATION_SPEC.md`](../VALIDATION_SPEC.md), [`docs/DECISIONS.md`](../DECISIONS.md), and [`docs/DATA_SOURCES.md`](../DATA_SOURCES.md) (governing equations, peer-reviewed DOIs, and v0.2–v0.6 ablation/calibration tables).
-- [ ] Verify `web/` with `cd web && node --test src/*.test.js && npm run lint && npm run build`.
+- [x] Add a plain-English **Public Methodology** modal/page linked from `web/` populated with final v0.6 metrics (visual workflow diagram, screening-level disclaimers, and Bay Area validation highlights).
+- [x] Add a **Technical Methodology** page/view synthesizing [`docs/METHODS.md`](../METHODS.md), [`docs/VALIDATION_SPEC.md`](../VALIDATION_SPEC.md), [`docs/DECISIONS.md`](../DECISIONS.md), and [`docs/DATA_SOURCES.md`](../DATA_SOURCES.md) (governing equations, peer-reviewed DOIs, and v0.2–v0.6 ablation/calibration tables).
+- [x] Verify `web/` with `cd web && node --test src/*.test.js && npm run lint && npm run build`.
 
 ---
 
