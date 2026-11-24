@@ -5,12 +5,14 @@ from __future__ import annotations
 import argparse
 import csv
 import gzip
+import json
 import math
 import os
 import subprocess
 import tempfile
 import time
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -1108,6 +1110,117 @@ def _fetch_mrms_qpe_stacks(cfg: Mapping[str, Any], force: bool) -> None:
         )
 
 
+def compute_antecedent_precip_window(
+    start_date: str,
+    lookback_days: int = 5,
+) -> tuple[str, str]:
+    """Return inclusive [prior_start_date, prior_end_date] for lookback_days before start_date."""
+    if lookback_days < 1:
+        raise ValueError(f"lookback_days must be >= 1, got {lookback_days}")
+    t_start = datetime.fromisoformat(f"{start_date}T00:00:00")
+    prior_start = t_start - timedelta(days=lookback_days)
+    prior_end = t_start - timedelta(days=1)
+    return prior_start.strftime("%Y-%m-%d"), prior_end.strftime("%Y-%m-%d")
+
+
+def _download_and_clip_mrms_hour(
+    url_entry: tuple[datetime, list[str]],
+    bbox_utm: Sequence[float],
+    project_crs: str,
+) -> tuple[datetime, np.ndarray | None]:
+    ts, urls = url_entry
+    for url in urls:
+        try:
+            resp = requests.get(url, timeout=30)
+            if resp.status_code == 200:
+                raw_bytes = gzip.decompress(resp.content)
+                arr, _, _ = clip_mrms_grib2_to_utm_grid(
+                    grib_bytes=raw_bytes,
+                    bbox_utm=bbox_utm,
+                    project_crs=project_crs,
+                )
+                return ts, arr
+        except (requests.RequestException, OSError):
+            continue
+    return ts, None
+
+
+def _fetch_mrms_antecedent_5day(cfg: Mapping[str, Any], force: bool) -> None:
+    sfincs_cfg = cfg.get("sfincs_model", {})
+    out_raw = sfincs_cfg.get("antecedent_5day_file")
+    if not out_raw:
+        return
+    out_path = Path(str(out_raw))
+    existing: dict[str, Any] = {}
+    if out_path.exists() and not force:
+        existing = json.loads(out_path.read_text(encoding="utf-8"))
+
+    project_crs = str(cfg["project"]["crs"])
+    bbox_utm = cfg["domain"]["bbox_epsg26910"]
+    threshold_mm = float(sfincs_cfg.get("antecedent_amc3_threshold_mm", 28.0))
+    updated = False
+
+    for event_key, event_cfg in cfg.get("rain_events", {}).items():
+        if not event_cfg.get("mrms_qpe_file") or not event_cfg.get("start_date"):
+            continue
+        if event_key in existing and not force:
+            print(
+                f"[00_fetch_data] Cached 5-day antecedent MRMS for {event_key}: "
+                f"{existing[event_key]['mean_5day_mm']:.2f} mm ({existing[event_key]['amc_condition']})"
+            )
+            continue
+
+        prior_start, prior_end = compute_antecedent_precip_window(
+            str(event_cfg["start_date"]), lookback_days=5
+        )
+        product = str(event_cfg.get("mrms_product", "MultiSensor_QPE_01H_Pass2"))
+        url_entries = build_mrms_hourly_urls(
+            start_date=prior_start,
+            end_date=prior_end,
+            product=product,
+        )
+        frames_by_ts: dict[datetime, np.ndarray | None] = {}
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = [
+                pool.submit(_download_and_clip_mrms_hour, entry, bbox_utm, project_crs)
+                for entry in url_entries
+            ]
+            for fut in as_completed(futures):
+                ts, arr = fut.result()
+                frames_by_ts[ts] = arr
+
+        valid_frames = [arr for arr in frames_by_ts.values() if arr is not None]
+        missing_hours = len(url_entries) - len(valid_frames)
+        if not valid_frames:
+            raise RuntimeError(
+                f"Failed to fetch any 5-day antecedent MRMS frames for {event_key} ({prior_start}..{prior_end})"
+            )
+        total_grid = np.sum(np.stack(valid_frames, axis=0), axis=0)
+        mean_5day_mm = float(np.mean(total_grid))
+        max_5day_mm = float(np.max(total_grid))
+        amc_condition = "AMC-III" if mean_5day_mm > threshold_mm else "AMC-II"
+        existing[event_key] = {
+            "prior_start_date": prior_start,
+            "prior_end_date": prior_end,
+            "hours_expected": len(url_entries),
+            "hours_missing": missing_hours,
+            "mean_5day_mm": round(mean_5day_mm, 3),
+            "max_5day_mm": round(max_5day_mm, 3),
+            "threshold_mm": threshold_mm,
+            "amc_condition": amc_condition,
+        }
+        updated = True
+        print(
+            f"[00_fetch_data] Antecedent 5-day MRMS {event_key} ({prior_start}..{prior_end}): "
+            f"mean={mean_5day_mm:.2f} mm, max={max_5day_mm:.2f} mm, missing={missing_hours} -> {amc_condition}"
+        )
+
+    if updated or not out_path.exists():
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+        print(f"[00_fetch_data] Wrote 5-day antecedent MRMS summary -> {out_path}")
+
+
 def _fetch_hyetographs(cfg: Mapping[str, Any], force: bool) -> None:
     for event_key, event_cfg in cfg.get("rain_events", {}).items():
         hyetograph_file = event_cfg.get("hyetograph_file")
@@ -2135,6 +2248,7 @@ def fetch_data(config_path: Path, force: bool = False) -> None:
 
     _fetch_hyetographs(cfg, force=force)
     _fetch_mrms_qpe_stacks(cfg, force=force)
+    _fetch_mrms_antecedent_5day(cfg, force=force)
     _fetch_tidal_hydrographs(cfg, force=force)
     _fetch_dem(
         output_path=Path(domain["dem_source"]),

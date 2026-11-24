@@ -156,6 +156,19 @@ rain_events:
     hyetograph_file: "data/raw/sf_citywide/sf_hyetograph_ar_20240204_48hr.csv"
     mrms_product: "MultiSensor_QPE_01H_Pass2"
     mrms_qpe_file: "data/raw/sf_citywide/sf_mrms_qpe_20240204_48hr.nc"
+  rain_ar_20241122:
+    label: "Nov 22, 2024 Atmospheric River"
+    return_period_yr: null
+    duration_hr: 48
+    source: "open_meteo_archive"
+    lat: 37.76
+    lon: -122.43
+    start_date: "2024-11-22"
+    end_date: "2024-11-23"
+    timestep_min: 60
+    hyetograph_file: "data/raw/sf_citywide/sf_hyetograph_ar_20241122_48hr.csv"
+    mrms_product: "MultiSensor_QPE_01H_Pass2"
+    mrms_qpe_file: "data/raw/sf_citywide/sf_mrms_qpe_20241122_48hr.nc"
 
 slr_increments:
   slr_0ft:
@@ -250,6 +263,16 @@ slr_increments:
     end_date: "20240205"
     reference_time_utc: "2024-02-04T00:00:00"
     tidal_hydrograph_file: "data/raw/sf_citywide/sf_tide_obs_20240204.csv"
+  tide_ar_20241122:
+    slr_ft: 0.0
+    slr_m: 0.0
+    opc_2024_pathway: "Observed Hindcast (NOAA Multi-Gauge)"
+    opc_2024_horizon: "2024-11-22"
+    tide_method: "noaa_coops"
+    begin_date: "20241122"
+    end_date: "20241123"
+    reference_time_utc: "2024-11-22T00:00:00"
+    tidal_hydrograph_file: "data/raw/sf_citywide/sf_tide_obs_20241122.csv"
 
 scenarios:
   - id: sf_citywide_100yr_slr0ft
@@ -267,6 +290,9 @@ scenarios:
   - id: sf_citywide_ar_20240204
     rain: rain_ar_20240204
     slr: tide_ar_20240204
+  - id: sf_citywide_ar_20241122
+    rain: rain_ar_20241122
+    slr: tide_ar_20241122
   - id: sf_citywide_100yr_slr1ft
     rain: rain_100yr
     slr: slr_1ft
@@ -329,6 +355,8 @@ sfincs_model:
   docker_image: "deltares/sfincs-cpu:latest"
   reference_time_utc: "2020-01-01T00:00:00"
   rain_source: "mrms"  # "mrms" applies NOAA MRMS 1 km QPE where mrms_qpe_file is set (AR hindcasts); design storms use Atlas 14 CSVs
+  antecedent_5day_file: "data/raw/sf_citywide/sf_mrms_antecedent_5day.json"
+  antecedent_amc3_threshold_mm: 28.0
   drainage_tier: "tier0"  # Kept at tier0 after v0.4 Phase 2 ablation; tier1a/1b/2 available via config or --drainage-tier
   drainage_rate_mm_hr: 5.0
   drainage_grid_res_m: 40.0
@@ -402,6 +430,16 @@ validation:
       road_closures_provider: "datasf_emergency"
       road_closures_file: "data/raw/sf_citywide/sf_tier_c_20240204_disruptions.gpkg"
       gauges_file: "data/raw/sf_citywide/sf_tide_obs_20240204.csv"
+    - id: "ar_20241122"
+      label: "Nov 22, 2024 Atmospheric River"
+      scenario: "sf_citywide_ar_20241122"
+      depth_file: "data/processed/sf_citywide/sf_citywide_ar_20241122_depth_2m.tif"
+      validation_311_reference: "data/raw/sf_citywide/sf_311_20241122_floods.gpkg"
+      validation_311_start_utc: "2024-11-22T00:00:00"
+      validation_311_end_utc: "2024-11-24T00:00:00"
+      road_closures_provider: "datasf_emergency"
+      road_closures_file: "data/raw/sf_citywide/sf_tier_c_20241122_disruptions.gpkg"
+      gauges_file: "data/raw/sf_citywide/sf_tide_obs_20241122.csv"
   sources:
     groundsource_file: "data/raw/sf_citywide/sf_groundsource_floods.parquet"
     groundsource_url: "https://zenodo.org/records/18647054/files/groundsource_2026.parquet?download=1"
@@ -423,7 +461,7 @@ export:
   tier_e_nfip_geojson_file: "data/web_outputs/sf_tier_e_nfip_tracts.geojson"
   topo_contours_geojson_file: "data/web_outputs/sf_topo_contours.geojson"
   dem_cog_file: "data/web_outputs/sf_hydro_dem_3857.tif"
-  holdout_storms: ["ar_20240204"]
+  holdout_storms: ["ar_20240204", "ar_20241122"]
   manifest_file: "data/web_outputs/manifest.json"
   manifest_version: "0.6"
   web_data_url_prefix: "/data"
