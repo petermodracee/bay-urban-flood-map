@@ -90,4 +90,13 @@ function serveWebOutputsPlugin() {
 
 export default defineConfig({
 	plugins: [serveWebOutputsPlugin()],
+	build: {
+		rollupOptions: {
+			input: {
+				main: path.resolve(__dirname, "index.html"),
+				about: path.resolve(__dirname, "about.html"),
+				methodology: path.resolve(__dirname, "methodology.html"),
+			},
+		},
+	},
 });

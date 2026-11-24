@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Methodology &mdash; SF Bay Urban Flood Map (v0.6)</title>
+    <meta
+      name="description"
+      content="Technical methodology for SF Bay Urban Flood Map v0.6: 2D SFINCS subgrid equations, four-gauge Bay tides, NOAA MRMS rainfall, and five-tier validation."
+    />
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="canonical" href="https://bay-urban-flood-map.pages.dev/methodology.html" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="SF Bay Urban Flood Map" />
+    <meta property="og:title" content="Methodology — SF Bay Urban Flood Map (v0.6)" />
+    <meta
+      property="og:description"
+      content="Technical methodology for SF Bay Urban Flood Map v0.6: 2D SFINCS subgrid equations, four-gauge Bay tides, NOAA MRMS rainfall, and five-tier validation."
+    />
+    <meta property="og:url" content="https://bay-urban-flood-map.pages.dev/methodology.html" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Methodology — SF Bay Urban Flood Map (v0.6)" />
+    <meta
+      name="twitter:description"
+      content="Technical methodology for SF Bay Urban Flood Map v0.6: 2D SFINCS subgrid equations, four-gauge Bay tides, NOAA MRMS rainfall, and five-tier validation."
+    />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "TechArticle",
+            "headline": "Subgrid 2D Compound Pluvial-Coastal Flood Modeling and Multi-Tier Validation for San Francisco",
+            "url": "https://bay-urban-flood-map.pages.dev/methodology.html",
+            "description": "Technical methodology for SF Bay Urban Flood Map v0.6: 2D SFINCS subgrid equations, four-gauge Bay tides, NOAA MRMS rainfall, and five-tier validation.",
+            "datePublished": "2026-11-24",
+            "dateModified": "2026-11-24",
+            "version": "0.6",
+            "license": "https://www.apache.org/licenses/LICENSE-2.0",
+            "isPartOf": {
+              "@type": "WebSite",
+              "name": "SF Bay Urban Flood Map",
+              "url": "https://bay-urban-flood-map.pages.dev/"
+            }
+          },
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              {
+                "@type": "ListItem",
+                "position": 1,
+                "name": "Flood Map",
+                "item": "https://bay-urban-flood-map.pages.dev/"
+              },
+              {
+                "@type": "ListItem",
+                "position": 2,
+                "name": "Methodology",
+                "item": "https://bay-urban-flood-map.pages.dev/methodology.html"
+              }
+            ]
+          }
+        ]
+      }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,600&display=swap"
+    />
+    <link rel="stylesheet" href="/src/methodology.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand-link" href="./">SF Bay Urban Flood Map</a>
+        <nav class="header-nav" aria-label="Site navigation">
+          <a class="nav-link" href="./">&larr; Flood Map</a>
+          <a class="nav-link" href="./about.html">About</a>
+          <a class="nav-link active" href="./methodology.html" aria-current="page">Methodology</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page-layout">
+      <aside class="section-sidebar" aria-label="On this page">
+        <p class="sidebar-heading">On This Page</p>
+        <ul class="sidebar-nav">
+          <li><a href="#sec-abstract">Abstract</a></li>
+          <li><a href="#sec-intro">Introduction</a></li>
+          <li>
+            <a href="#sec-methods">Methods</a>
+            <ul class="sidebar-subnav">
+              <li><a href="#sec-terrain">Terrain &amp; Datums</a></li>
+              <li><a href="#sec-equations">Governing Equations</a></li>
+              <li><a href="#sec-forcing">Drainage &amp; Forcing</a></li>
+              <li><a href="#sec-validation-protocol">Validation Protocol</a></li>
+            </ul>
+          </li>
+          <li>
+            <a href="#sec-results">Results</a>
+            <ul class="sidebar-subnav">
+              <li><a href="#sec-res-v04">v0.2 to v0.4 Ablations</a></li>
+              <li><a href="#sec-res-v06-cal">v0.6 Calibration</a></li>
+              <li><a href="#sec-res-v06-holdout">Holdout &amp; Validation</a></li>
+            </ul>
+          </li>
+          <li><a href="#sec-discussion">Discussion</a></li>
+          <li><a href="#sec-disclosure">Disclosure</a></li>
+          <li><a href="#sec-provenance">Data &amp; References</a></li>
+        </ul>
+      </aside>
+
+      <article class="doc-panel">
+        <section id="sec-abstract" class="doc-hero">
+          <h1>
+            Subgrid 2D Compound Pluvial&ndash;Coastal Flood Modeling and Multi-Tier Validation for San Francisco
+          </h1>
+          <p class="paper-meta">
+            Version 0.6 &middot; 24 Nov 2026
+          </p>
+
+          <div class="abstract-box">
+            <strong>Abstract.</strong> Existing flood hazard products in the San Francisco Bay Area cover coastal inundation and mapped riverine floodplains separately: shoreline sea level rise (SLR) viewers omit localized rainfall runoff, while Federal Emergency Management Agency (FEMA) regulatory floodplains underrepresent urban stormwater ponding in low-lying impervious bowls. Because underground storm-drain records are fragmented across 101 Bay Area municipalities, a uniform regional 1D&ndash;2D pipe model is not currently practical. This document describes the v0.6 formulation and five-tier validation of the SF Bay Urban Flood Map, an open-source 2D rain-on-grid screening model built on HydroMT-SFINCS. A 20 m local-inertial computational grid is paired with 2 m hydro-enforced USGS 3DEP LiDAR subgrid tables, four-gauge NOAA tidal boundaries, 1 km NOAA MRMS radar-gauge precipitation, and a uniform Tier 0 drainage abstraction of 5.0 mm/hr alongside Soil Conservation Service (SCS) Curve Number infiltration. The model simulates 18 design-storm SLR scenarios (10-year and 100-year storms across 0, +1, +3, and +5 ft SLR, plus derived SLR depth differences) and five historical atmospheric river (AR) hindcasts. Under temporal holdout and parsimony acceptance criteria across five open validation tiers, one-factor-at-a-time calibration tests rejected both wet antecedent moisture condition shifts (AMC-III) and mean-rate-matched National Land Cover Database (NLCD) drainage scaling (Tier 1a/1b). On an untouched November 2024 holdout storm (536 DataSF 311 flood reports), the frozen v0.6 baseline achieves 57.09% 25 m capture (1.684&times; lift, 0.6285 ROC-AUC), 3.860&times; exact-pixel lift, and 0.0013 m tide-gauge RMSE.
+          </div>
+        </section>
+
+        <!-- INTRODUCTION -->
+        <section id="sec-intro" class="content-section">
+          <h2>Introduction</h2>
+          <p>
+            Compound flooding in urbanized estuaries results from the interaction of intense rainfall, rapid runoff across impervious streets, and elevated coastal water levels that restrict gravity-fed storm outfalls (Leijnse et al., 2021; Nederhoff et al., 2021). In the San Francisco Bay Area, public hazard maps leave a practical gap between coastal and inland risk: static shoreline SLR viewers omit overland rainfall accumulation, while national-scale FEMA Flood Insurance Rate Maps miss much of the localized pluvial ponding that occurs in urban depressions (Sanders et al., 2023; Schubert et al., 2024).
+          </p>
+          <p>
+            Building a coupled 1D&ndash;2D storm-sewer model across all nine Bay Area counties is currently blocked by data fragmentation: subsurface pipe networks are split across 101 municipalities and nine county flood-control districts with inconsistent GIS schemas and legacy CAD or PDF drawings. As in other regional 2D flood frameworks where uniform 1D pipe-invert data are unavailable, urban drainage is parameterized at the grid scale (Bates et al., 2021). Simple terrain fill-sink methods avoid pipe data but produce false positives behind uncarved highway overpasses and ignore flow timing and tidal backwater. The SF Bay Urban Flood Map instead uses a standalone 2D local-inertial subgrid model, Deltares Super-Fast INundation of CoastS (SFINCS), that runs locally and exports static Cloud Optimized GeoTIFFs (COGs) for browser-based viewing (Leijnse et al., 2021; Eilander et al., 2023; van Ormondt et al., 2025).
+          </p>
+          <p>
+            Simulations use fixed sea-level increments (0, +1, +3, and +5 ft) mapped dynamically in metadata to 2024 California Ocean Protection Council (OPC) projections (California Ocean Protection Council, 2024) so raster outputs stay valid as state planning horizons change. Development and validation begin on San Francisco's combined-sewer core (v0.1 through v0.6) to verify hydro-enforcement and multi-tier scoring before testing uncalibrated spatial transfer on a Municipal Separate Storm Sewer System (MS4) creek basin (San Francisquito Creek and East Palo Alto in v0.7). Each candidate physics change is tested through controlled one-factor-at-a-time ablations and temporal holdouts before adoption (Table 1).
+          </p>
+
+          <h3>Literature Basis</h3>
+          <p class="table-caption">
+            <strong>Table 1.</strong> Model components, primary literature sources, methodological roles, and v0.6 default status.
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Model Component</th>
+                  <th>Primary Citation(s)</th>
+                  <th>Methodological Role</th>
+                  <th>v0.6 Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Automated model build &amp; hindcast ensemble</td>
+                  <td>Eilander et al. (2023)</td>
+                  <td>Reproducible HydroMT-SFINCS assembly and multi-event compound hindcast protocol</td>
+                  <td>Retained (5 ARs)</td>
+                </tr>
+                <tr>
+                  <td>Reduced-physics 2D compound solver</td>
+                  <td>Leijnse et al. (2021)</td>
+                  <td>Local-inertial shallow-water equations with advection and viscosity, coupled rain and tide, optional quadtree mesh</td>
+                  <td>Retained (quadtree optional)</td>
+                </tr>
+                <tr>
+                  <td>Subgrid topography &amp; friction tables</td>
+                  <td>van Ormondt et al. (2025); cf. Sanders &amp; Schubert (2019)</td>
+                  <td>SFINCS volume&ndash;depth and wet-area conveyance lookup tables (<code>sfincs.sbg</code>) from 2 m DEM onto 20 m cells (conceptually related to PRIMo subgrid upscaling)</td>
+                  <td>Retained</td>
+                </tr>
+                <tr>
+                  <td>Urban building block-out</td>
+                  <td>Schubert &amp; Sanders (2012)</td>
+                  <td>Raising building footprints by +3.0 m with roughness <var>n</var> = 0.30 to route flow along streets</td>
+                  <td>Retained</td>
+                </tr>
+                <tr>
+                  <td>2D NLCD urban drainage proxy</td>
+                  <td>Bates et al. (2021)</td>
+                  <td>Parameterizing storm-drain abstraction from NLCD imperviousness without 1D pipe-invert GIS</td>
+                  <td>Optional (v0.7 test)</td>
+                </tr>
+                <tr>
+                  <td>Tide-locked outfall attenuation</td>
+                  <td><em>Experimental extension</em></td>
+                  <td>Reducing NLCD-scaled 2D drainage capacity as elevation approaches tide level outside pumped polders (Tier 1b)</td>
+                  <td>Optional (v0.7 test)</td>
+                </tr>
+                <tr>
+                  <td>Estuarine tidal amplification</td>
+                  <td>Nederhoff et al. (2021)</td>
+                  <td>Four-gauge NOAA CO-OPS spatial interpolation along the open-water boundary capturing South Bay amplification and lag</td>
+                  <td>Retained</td>
+                </tr>
+                <tr>
+                  <td>Multi-tier open validation (Tiers A&ndash;E)</td>
+                  <td>Grimley et al. (2025); Sanders et al. (2023); Schubert et al. (2024); Praharaj et al. (2021); Agonafir et al. (2022); Lerma et al. (2025); Wing et al. (2020)</td>
+                  <td>Gauge RMSE, local California benchmarks, roadway disruptions, 311 buffer/ROC-AUC, and NFIP tract-level loss correlation</td>
+                  <td>Retained (5 tiers)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- METHODS -->
+        <section id="sec-methods" class="content-section">
+          <h2>Methods</h2>
+
+          <h3 id="sec-terrain">Study Domain, Datums &amp; Terrain Hydro-Enforcement</h3>
+          <p>
+            All terrain preprocessing, hydrodynamic simulations, and validation metrics operate strictly in metric units under EPSG:26910 (North American Datum of 1983 / Universal Transverse Mercator Zone 10N) and the North American Vertical Datum of 1988 (NAVD88). Outputs are reprojected to EPSG:3857 (Web Mercator) COGs only at final web export, with depths shallower than 0.05 m (2 in) masked as NoData. Starting from the U.S. Geological Survey (USGS) 3D Elevation Program (3DEP) 1 m LiDAR Digital Elevation Model (DEM; CA_SanFrancisco_B23) resampled to 2 m subgrid resolution, <code>pipeline/01_prep_terrain.py</code> applies four deterministic preprocessing steps:
+          </p>
+          <ol>
+            <li>
+              <strong>Building block-out (Schubert &amp; Sanders, 2012).</strong> DataSF LiDAR building footprints (dataset ynuv-fyni) are raised by +3.0 m with Manning's roughness <var>n</var> = 0.30, preventing artificial ponding inside structures and preserving street-corridor conveyance.
+            </li>
+            <li>
+              <strong>Bounded underpass hydro-enforcement.</strong> OpenStreetMap road and rail segments tagged as bridges, tunnels, or elevated layers are linearly carved between approach elevation medians (<code>min_bump_m</code> = 0.15 m, <code>carve_half_width_m</code> = 5.0 m). Segments with elevation offsets exceeding 6.0 m are skipped so bored hillside tunnels (such as the Broadway and Stockton tunnels) are not cut into open trenches. Reproducible YAML overrides (<code>carve_exclude_osm_ids</code> for the Winston Drive / Stonestown Galleria skybridges and <code>manual_underpass_cuts</code>) eliminate localized carving artifacts without manual raster editing.
+            </li>
+            <li>
+              <strong>Upward-only shoreline crest enforcement.</strong> Engineered coastal defenses from the San Francisco Estuary Institute (SFEI) SF Bay Shore Inventory (levees, seawalls, floodwalls, and berms) are burned upward-only via <var>z</var> = max(<var>z</var>, <var>Z</var><sub>mean</sub>) across a &plusmn;2.0 m half-width so narrow shoreline crests survive subgrid aggregation.
+            </li>
+            <li>
+              <strong>Roughness and SCS Curve Number grids.</strong> Manning's <var>n</var> is assigned from USGS Annual NLCD land cover and impervious fraction (<code>n_paved</code> = 0.030, <code>n_water</code> = 0.020, <code>n_open_space</code> = 0.035, <code>n_vegetation</code> = 0.060). SCS Curve Numbers (<var>CN</var> &isin; [30, 100]; USDA NRCS, 2004) combine NLCD classes with U.S. Department of Agriculture (USDA) Natural Resources Conservation Service (NRCS) Soil Survey Geographic Database (SSURGO) Hydrologic Soil Groups, defaulting urban fill and unclassified cells to group D.
+            </li>
+          </ol>
+
+          <h3 id="sec-equations">Governing Equations &amp; Subgrid Formulation</h3>
+          <p>
+            Deltares SFINCS solves the 2D local-inertial shallow-water equations on a staggered Arakawa C-grid with simplified upwind advection enabled (<code>advection</code> = 1), horizontal eddy viscosity enabled (<code>viscosity</code> = 1), wetting/drying threshold <code>huthresh</code> = 0.01 m, and Courant&ndash;Friedrichs&ndash;Lewy (CFL) stability factor <var>&alpha;</var> = 0.75 (Leijnse et al., 2021; van Ormondt et al., 2025). Mass conservation and <var>x</var>-direction momentum conservation (with an analogous <var>y</var>-direction equation) are:
+          </p>
+
+          <div class="equation-block">
+            <div>
+              <span class="frac"><span>&part;&zeta;</span><span>&part;t</span></span>
+              +
+              <span class="frac"><span>&part;q<sub>x</sub></span><span>&part;x</span></span>
+              +
+              <span class="frac"><span>&part;q<sub>y</sub></span><span>&part;y</span></span>
+              = R<sub>net</sub> &minus; I<sub>SCS</sub>
+            </div>
+            <span class="equation-num">(1)</span>
+          </div>
+
+          <div class="equation-block">
+            <div>
+              <span class="frac"><span>&part;q<sub>x</sub></span><span>&part;t</span></span>
+              +
+              <span class="frac"><span>&part;(u q<sub>x</sub>)</span><span>&part;x</span></span>
+              +
+              <span class="frac"><span>&part;(v q<sub>x</sub>)</span><span>&part;y</span></span>
+              + g h <span class="frac"><span>&part;&zeta;</span><span>&part;x</span></span>
+              + g <span class="frac"><span>n<sup>2</sup> |q| q<sub>x</sub></span><span>h<sup>7/3</sup></span></span>
+              &minus; &nu; h &nabla;<sup>2</sup> q<sub>x</sub> = 0
+            </div>
+            <span class="equation-num">(2)</span>
+          </div>
+
+          <p>
+            where <var>&zeta;</var> is water-surface elevation (m NAVD88), <var>q</var> = (<var>q</var><sub><var>x</var></sub>, <var>q</var><sub><var>y</var></sub>) is unit discharge (m<sup>2</sup>/s), <var>h</var> is flow depth (m), <var>u</var> and <var>v</var> are depth-averaged velocities, <var>g</var> is gravitational acceleration, <var>n</var> is Manning's roughness, <var>&nu;</var> is eddy viscosity, <var>R</var><sub>net</sub> is net precipitation after storm-drain abstraction, and <var>I</var><sub>SCS</sub> is spatially distributed SCS Curve Number soil infiltration (<code>scsfile</code>). For citywide San Francisco, a 20 m computational grid (650 &times; 620 cells, 329,070 active) stores pre-computed subgrid volume&ndash;depth and wet-area conveyance lookup tables (<code>sfincs.sbg</code> with <code>nr_subgrid_pixels</code> = 10, <code>nbins</code> = 10, and <code>max_gradient</code> = 5.0; van Ormondt et al., 2025). Peak coarse water-surface elevations (<code>zsmax</code>) are bilinearly downscaled onto the 2 m hydro-enforced DEM, and added compound SLR depth is isolated as:
+          </p>
+
+          <div class="equation-block">
+            <div>
+              d<sub>2m</sub> = max(0,&nbsp;zsmax<sub>2m</sub> &minus; dem<sub>2m</sub>),
+              &nbsp;&nbsp;&nbsp;&nbsp;
+              &Delta;d<sub>SLR</sub> = max(0,&nbsp;d(Storm + SLR) &minus; d(Storm + 0 ft))
+            </div>
+            <span class="equation-num">(3)</span>
+          </div>
+
+          <p>
+            During v0.6 calibration, an antecedent soil moisture test evaluated 120-hour prior NOAA MRMS rainfall against the USDA NRCS dormant-season wet threshold (&gt; 28.0 mm), converting standard <var>CN</var><sub>II</sub> to wet <var>CN</var><sub>III</sub> (USDA NRCS, 2004):
+          </p>
+
+          <div class="equation-block">
+            <div>
+              CN<sub>III</sub> =
+              <span class="frac">
+                <span>23 &middot; CN<sub>II</sub></span>
+                <span>10 + 0.13 &middot; CN<sub>II</sub></span>
+              </span>
+            </div>
+            <span class="equation-num">(4)</span>
+          </div>
+
+          <h3 id="sec-forcing">Storm-Drain Abstraction &amp; Compound Forcing</h3>
+          <p>
+            Because uniform 1D pipe-invert data are unavailable across the nine-county Bay Area, subsurface storm-drain removal is structured into four progressive drainage tiers (distinct from validation Tiers A&ndash;E below):
+          </p>
+          <ul>
+            <li>
+              <strong>Tier 0 (Uniform scalar abstraction; v0.6 default).</strong> Subtracts a constant 5.0 mm/hr from rainfall over land while retaining spatially distributed <code>scsfile</code> soil infiltration.
+            </li>
+            <li>
+              <strong>Tier 1a (Imperviousness-scaled 2D drainage).</strong> Parameterizes spatially varying drainage from NLCD imperviousness via SFINCS <code>netamprfile</code> (Bates et al., 2021), tested both un-matched (2&ndash;10 mm/hr in v0.4) and mean-rate-matched (scaled so the urban-land mean equals 5.0 mm/hr in v0.6).
+            </li>
+            <li>
+              <strong>Tier 1b (Tide-attenuated 2D drainage).</strong> Extends Tier 1a by linearly attenuating gravity-outfall capacity as (<var>z</var> &minus; tide(<var>t</var>)) / 1.5 m approaches zero outside levee-protected pumped polders.
+            </li>
+            <li>
+              <strong>Tier 2 (Municipal GIS enrichment; planned v0.7+).</strong> Incorporates open municipal storm-drain, culvert, and pump-station GIS where available in separate-MS4 watersheds.
+            </li>
+          </ul>
+          <p>
+            Shoreline boundary cells (elevation &le; 0.5 m NAVD88) are driven by four National Oceanic and Atmospheric Administration (NOAA) Center for Operational Oceanographic Products and Services (CO-OPS) tide gauges: Presidio (9414290), Alameda (9414750), Richmond (9414863), and Redwood City (9414523), while upland cells along the southern San Mateo County border (&gt; 0.5 m NAVD88) act as open outflow boundaries (<code>msk</code> = 3). Spatial interpolation across these four gauges resolves San Francisco Bay's +0.34 m Mean Higher High Water (MHHW) amplification and +60 min phase lag toward the South Bay (Nederhoff et al., 2021). Design storms combine 24-hour NOAA Atlas 14 Vol. 6 precipitation depths (90.4 mm for the 10-year storm; 144.0 mm for the 100-year storm; Perica et al., 2011; rev. 2014) distributed via alternating-block hyetographs (Chow et al., 1988) with semidiurnal tides (1.85 m MHHW plus 0.35 m storm surge) and 0, +1, +3, or +5 ft SLR. Historical AR hindcasts use hourly 1 km NOAA Multi-Radar Multi-Sensor (MRMS) Quantitative Precipitation Estimation (QPE) radar-gauge rainfall (<code>rain_source</code> = "mrms"; Zhang et al., 2016) and observed four-gauge tides.
+          </p>
+
+          <h3 id="sec-validation-protocol">Five-Tier Validation &amp; Holdout Protocol</h3>
+          <p>
+            All pluvial metrics are computed strictly over valid land (elevation &ge; 0.5 m NAVD88, excluding NLCD open water) across five independent open-data tiers:
+          </p>
+          <ul>
+            <li>
+              <strong>Tier A (Physical water levels).</strong> NOAA CO-OPS tide gauges scored with root-mean-square error (RMSE), mean absolute error (MAE), peak timing error, and Nash&ndash;Sutcliffe Efficiency (NSE; Grimley et al., 2025).
+            </li>
+            <li>
+              <strong>Tier B (Authoritative hydraulic benchmark).</strong> San Francisco Public Utilities Commission (SFPUC) 100-Year Storm Flood Risk Map evaluated at &ge; 0.1524 m (6 in) via Hit Rate (HR), False Alarm Ratio (FAR), and Critical Success Index (CSI), following local California benchmark comparisons in Sanders et al. (2023) and Schubert et al. (2024).
+            </li>
+            <li>
+              <strong>Tier C (Roadway and emergency disruptions).</strong> DataSF Department of Emergency Management traffic hazard dispatches and San Francisco Fire Department (SFFD) water rescue calls (310 points across 5 ARs), scored at &ge; 0.05 m (2 in) with 25 m and 50 m capture rates, lift (the ratio of the flooded report rate to the flooded rate across random land controls), and Mann&ndash;Whitney receiver operating characteristic area under the curve (ROC-AUC; Praharaj et al., 2021).
+            </li>
+            <li>
+              <strong>Tier D (Civic reports and news archives).</strong> DataSF 311 flood and sewer reports (2,071 valid-land points across 5 ARs) scored at &ge; 0.05 m (2 in) with 0, 25, and 50 m capture, lift over 2,000 seeded random land controls, and ROC-AUC (Agonafir et al., 2022; Lerma et al., 2025), alongside Google Research Groundsource (332 small-footprint records across 41 San Francisco sub-basins).
+            </li>
+            <li>
+              <strong>Tier E (Structural loss cross-check).</strong> OpenFEMA National Flood Insurance Program (NFIP) redacted claims (259 San Francisco census tracts, 92 claims, $1.54M paid) tested via Spearman rank correlation (<var>&rho;</var>) against modeled flooded land area and exposed buildings (Wing et al., 2020).
+            </li>
+          </ul>
+          <p>
+            To guard against overfitting during v0.6 calibration, the five-storm ensemble was split into three calibration storms (Oct 2021, Dec 2022, and Jan 2023 ARs; 1,394 DataSF 311 points) and two untouched holdout storms (Feb 2024 and Nov 2024 ARs). Candidate physics changes were tested one factor at a time on the calibration storms and the 100-year 0 ft SLR design storm. A change was retained only if it improved at least two independent tiers without regressing SFPUC CSI, cleared a parsimony threshold (&ge; +0.01 ROC-AUC or &ge; +0.005 CSI), and remained neutral or improved on the holdout set.
+          </p>
+        </section>
+
+        <!-- RESULTS -->
+        <section id="sec-results" class="content-section">
+          <h2>Results</h2>
+
+          <h3 id="sec-res-v04">Controlled v0.2 to v0.4 Ablations</h3>
+          <p>
+            Table 2 summarizes one-factor-at-a-time ablations against the v0.2 Tier 0 baseline (SFPUC CSI = 0.1999; Dec 2022 AR 25 m ROC-AUC = 0.6715), showing which structural upgrades generalized across San Francisco.
+          </p>
+          <p class="table-caption">
+            <strong>Table 2.</strong> Controlled v0.2 to v0.4 ablation comparisons against the frozen Tier 0 baseline.
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Candidate Upgrade</th>
+                  <th>Comparison vs. v0.2 Control</th>
+                  <th>SF Default</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Multi-gauge Bay tides (4 NOAA gauges)</td>
+                  <td>SFPUC CSI 0.1998 vs. 0.1999; Dec 2022 AR 25 m AUC 0.6713 vs. 0.6715; resolves +0.34 m MHHW and +60 min South Bay lag</td>
+                  <td>Retained</td>
+                </tr>
+                <tr>
+                  <td>Un-matched Tier 1a / 1b (2&ndash;10 mm/hr NLCD)</td>
+                  <td>SFPUC CSI dropped from 0.1999 to 0.1137 / 0.1139; Dec 2022 25 m AUC dropped from 0.6715 to 0.6483 / 0.6487 (~8&ndash;9 mm/hr over-abstraction)</td>
+                  <td>Optional (v0.7 test)</td>
+                </tr>
+                <tr>
+                  <td>Quadtree mesh (40 m to 10 m, 454,906 cells)</td>
+                  <td>0 m 311 capture rose from 17.22% to 19.10% (6 in lift 3.92&times; to 4.14&times;), but 25 m AUC dropped to 0.6501, CSI to 0.1910, and runtime increased 3.1&times;&ndash;5.6&times; (1,585&ndash;3,738 s)</td>
+                  <td>Optional (<code>--quadtree</code>)</td>
+                </tr>
+                <tr>
+                  <td>NOAA MRMS 1 km QPE (4-AR ensemble, 1,535 pts)</td>
+                  <td>4-AR 25 m capture rose from 27.03% to 36.95% (+9.92 pp), lift from 0.819&times; to 1.251&times;, ROC-AUC from 0.5629 to 0.5888; 50 m capture from 38.91% to 57.30%</td>
+                  <td>Retained</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 id="sec-res-v06-cal">v0.6 Terrain Control &amp; Calibration Ablations</h3>
+          <p>
+            Reproducible terrain QA overrides removed artificial trench artifacts at Winston Drive and Stonestown Galleria with zero regression across Tiers A&ndash;E. On the three calibration storms (Oct 2021, Dec 2022, and Jan 2023 ARs; 5-day antecedent MRMS totals of 36.76, 69.92, and 57.68 mm, all exceeding the 28.0 mm wet threshold), none of the calibration candidates met the model-selection criteria (Table 3).
+          </p>
+          <p class="table-caption">
+            <strong>Table 3.</strong> Calibration ablations on the three-storm calibration set and 100-year 0 ft SLR design storm.
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Configuration</th>
+                  <th class="num">Tier B SFPUC<span class="th-sub">HR / FAR / CSI</span></th>
+                  <th class="num">Tier D 311 (25 m)<span class="th-sub">Cap / Lift / AUC</span></th>
+                  <th class="num">Tier C (25 m)<span class="th-sub">Cap / Lift / AUC</span></th>
+                  <th class="num">Tier E NFIP<span class="th-sub"><var>&rho;</var><sub>bldg</sub> / <var>&rho;</var><sub>area</sub></span></th>
+                  <th>Outcome</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Baseline (Tier 0, AMC-II)</td>
+                  <td class="num">0.3901 / 0.7188 / 0.1953</td>
+                  <td class="num">49.03% / 1.573&times; / 0.6184</td>
+                  <td class="num">43.95% / 1.338&times; / 0.5755</td>
+                  <td class="num">0.0956 / 0.2289</td>
+                  <td>Retained (v0.6)</td>
+                </tr>
+                <tr>
+                  <td>Wet soil moisture (AMC-III auto)</td>
+                  <td class="num">0.3901 / 0.7188 / 0.1953</td>
+                  <td class="num">54.53% / 1.629&times; / 0.6241</td>
+                  <td class="num">45.52% / 1.252&times; / 0.5711</td>
+                  <td class="num">0.0956 / 0.2289</td>
+                  <td>Rejected (+0.0057 &lt; +0.01; Tier C &minus;0.0044)</td>
+                </tr>
+                <tr>
+                  <td>Rate-matched Tier 1a (NLCD)</td>
+                  <td class="num">0.3042 / 0.7249 / 0.1689</td>
+                  <td class="num">48.31% / 1.519&times; / 0.6044</td>
+                  <td class="num">43.95% / 1.382&times; / 0.5747</td>
+                  <td class="num">0.1268 / 0.2311</td>
+                  <td>Rejected (Tier B &minus;0.0264; Tier D &minus;0.0140)</td>
+                </tr>
+                <tr>
+                  <td>Rate-matched Tier 1b (tide)</td>
+                  <td class="num">0.3049 / 0.7257 / 0.1688</td>
+                  <td class="num">48.70% / 1.525&times; / 0.6051</td>
+                  <td class="num">43.95% / 1.373&times; / 0.5741</td>
+                  <td class="num">0.1268 / 0.2310</td>
+                  <td>Rejected (Tier B &minus;0.0265; Tier D &minus;0.0133)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="table-note">
+            <strong>Notes:</strong> <strong>HR</strong> = Hit Rate (fraction of SFPUC benchmark-flooded cells also modeled as flooded at &ge; 0.1524 m); <strong>FAR</strong> = False Alarm Ratio (fraction of modeled-flooded cells outside the benchmark); <strong>CSI</strong> = Critical Success Index (overlap of modeled and benchmark extents, penalizing misses and false alarms); <strong>Cap</strong> = Capture rate (% of reports with modeled depth &ge; 0.05 m within 25 m); <strong>Lift</strong> = report capture rate divided by the flooded rate across 2,000 random land controls (&gt; 1&times; outperforms chance); <strong>AUC</strong> = Mann&ndash;Whitney ROC-AUC (0.50 = chance, 1.00 = perfect); <var>&rho;</var><sub>bldg</sub>, <var>&rho;</var><sub>area</sub> = Spearman rank correlation between tract-level NFIP claims and modeled exposed buildings or flooded land area; AMC-II / AMC-III = normal / wet SCS antecedent soil moisture.
+          </p>
+
+          <h3 id="sec-res-v06-holdout">Five-Tier Baseline &amp; Untouched Holdout Generalization</h3>
+          <p>
+            Evaluating the v0.6 baseline across all five ARs (2,071 valid-land 311 points and 310 Tier C emergency dispatches; Table 4) confirms out-of-sample generalization on the untouched Nov 2024 holdout storm. With 70.3 mm mean MRMS rainfall and 536 311 reports, the Nov 2024 hindcast achieves 11.19% exact-pixel (0 m) capture with 3.860&times; lift, 57.09% 25 m capture, and 84.00% Tier C 50 m capture (ROC-AUC = 0.6173).
+          </p>
+          <p class="table-caption">
+            <strong>Table 4.</strong> Per-event and five-storm ensemble validation metrics for the frozen v0.6 baseline across calibration (cal) and holdout splits.
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Storm Event</th>
+                  <th class="num">311 Pts</th>
+                  <th class="num">Tier D 311 (25 m)<span class="th-sub">Cap / Lift / AUC</span></th>
+                  <th class="num">Tier D 311 (50 m)<span class="th-sub">Cap / Lift / AUC</span></th>
+                  <th class="num">Tier C Pts</th>
+                  <th class="num">Tier C (25 m)<span class="th-sub">Cap / Lift / AUC</span></th>
+                  <th class="num">Presidio Tide<span class="th-sub">RMSE / Peak Err</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Oct 2021 AR <em>(cal)</em></td>
+                  <td class="num">567</td>
+                  <td class="num">53.62% / 1.538&times; / 0.5997</td>
+                  <td class="num">79.01% / 1.248&times; / 0.5866</td>
+                  <td class="num">64</td>
+                  <td class="num">51.56% / 1.360&times; / 0.5733</td>
+                  <td class="num">0.0013 m / +0.0016 m</td>
+                </tr>
+                <tr>
+                  <td>Dec 2022 AR <em>(cal)</em></td>
+                  <td class="num">424</td>
+                  <td class="num">58.73% / 1.790&times; / 0.6463</td>
+                  <td class="num">77.59% / 1.257&times; / 0.6294</td>
+                  <td class="num">66</td>
+                  <td class="num">56.06% / 1.568&times; / 0.6362</td>
+                  <td class="num">0.0014 m / +0.0001 m</td>
+                </tr>
+                <tr>
+                  <td>Jan 2023 AR <em>(cal)</em></td>
+                  <td class="num">403</td>
+                  <td class="num">34.74% / 1.392&times; / 0.6092</td>
+                  <td class="num">70.47% / 1.391&times; / 0.6224</td>
+                  <td class="num">33</td>
+                  <td class="num">24.24% / 1.087&times; / 0.5171</td>
+                  <td class="num">0.0019 m / +0.0012 m</td>
+                </tr>
+                <tr>
+                  <td>Feb 2024 AR <em>(holdout)</em></td>
+                  <td class="num">141</td>
+                  <td class="num">0.71% / 0.284&times; / 0.5000</td>
+                  <td class="num">2.13% / 0.413&times; / 0.4798</td>
+                  <td class="num">97</td>
+                  <td class="num">1.03% / 0.543&times; / 0.4950</td>
+                  <td class="num">0.0016 m / +0.0011 m</td>
+                </tr>
+                <tr>
+                  <td>Nov 2024 AR <em>(holdout)</em></td>
+                  <td class="num">536</td>
+                  <td class="num">57.09% / 1.684&times; / 0.6285</td>
+                  <td class="num">82.65% / 1.337&times; / 0.6217</td>
+                  <td class="num">50</td>
+                  <td class="num">46.00% / 1.228&times; / 0.5753</td>
+                  <td class="num">0.0013 m / +0.0010 m</td>
+                </tr>
+                <tr class="row-summary">
+                  <td>5-AR Ensemble Mean</td>
+                  <td class="num">2,071</td>
+                  <td class="num">40.98% / 1.338&times; / 0.5967</td>
+                  <td class="num">62.37% / 1.129&times; / 0.5880</td>
+                  <td class="num">310</td>
+                  <td class="num">35.78% / 1.157&times; / 0.5594</td>
+                  <td class="num">0.0013&ndash;0.0019 m<br />NSE = 1.0</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="table-note">
+            <strong>Notes:</strong> <strong>Pts</strong> = valid-land report count; <strong>Cap</strong> = Capture rate (% of reports with modeled depth &ge; 0.05 m within the 25 m or 50 m buffer); <strong>Lift</strong> = report capture rate divided by the flooded rate across 2,000 random land controls; <strong>AUC</strong> = Mann&ndash;Whitney ROC-AUC (0.50 = chance, 1.00 = perfect); <strong>RMSE</strong> = Root-Mean-Square Error between modeled and observed NOAA Presidio tide water levels; <strong>Peak Err</strong> = modeled minus observed peak tide water level; <strong>NSE</strong> = Nash&ndash;Sutcliffe Efficiency (1.0 = exact hydrograph match).
+          </p>
+          <p>
+            On regional static benchmarks, the v0.6 baseline scores HR = 0.3901, FAR = 0.7188, and CSI = 0.1953 against the SFPUC 100-Year Storm Flood Risk Map (Tier B), with corridor-level CSI reaching 0.4157 in Alemany and 0.3591 in SOMA and Mission Bay. In the Google Research Groundsource news archive (Tier D), modeled flooding matches all 37 observed San Francisco sub-basins (presence hit rate 1.000; overall accuracy 0.9024 across 41 sub-basins). Tract-level OpenFEMA NFIP claims (Tier E; 259 tracts, 92 claims, $1,536,935 paid) also correlate significantly with modeled flooded land area (<var>&rho;</var> = 0.2289, <var>p</var> = 0.0002), whereas exposed building counts show a weaker, non-significant correlation (<var>&rho;</var> = 0.0956, <var>p</var> = 0.1248).
+          </p>
+        </section>
+
+        <!-- DISCUSSION -->
+        <section id="sec-discussion" class="content-section">
+          <h2>Discussion</h2>
+
+          <h3>Why Uniform Tier 0 Outperformed Spatially Scaled Drainage</h3>
+          <p>
+            Uniform Tier 0 drainage (5.0 mm/hr) consistently outperformed NLCD-imperviousness-scaled Tier 1a and Tier 1b in San Francisco, even after removing v0.4's over-abstraction through exact domain-mean rate matching. In San Francisco's combined-sewer core, the most flood-prone topographic bowls (SOMA, Alemany, and downtown) are also the most impervious cells (80&ndash;100% impervious). Scaling 2D drainage upward with imperviousness removes more than 5.0 mm/hr directly inside those bowls while lowering removal on pervious parks, starving street ponding and dropping SFPUC CSI from 0.1953 to 0.1689. Shifting to AMC-III uniformly increases runoff across pervious and semi-pervious soils, lifting 311 capture by 5.50 percentage points at the cost of broader false-positive road inundation (Tier C lift fell from 1.338&times; to 1.252&times;, and Tier C AUC fell by 0.0044).
+          </p>
+          <p>
+            The two untouched holdout storms show where the 5.0 mm/hr drainage threshold separates overland ponding from sub-threshold rainfall. During the Nov 2024 AR (70.3 mm MRMS mean with intense convective bursts), modeled ponding validates strongly (57.09% 25 m capture, 0.6285 AUC) and is included in the public web viewer. Moderate, wind-dominated rainfall during the Feb 2024 AR (54.7 mm mean) stayed mostly below 5.0 mm/hr, so reported 311 and traffic incidents in that event reflect localized clogged catch basins and wind-downed trees rather than widespread overland ponding.
+          </p>
+
+          <h3>Limitations &amp; Model Boundaries</h3>
+          <p>
+            Flat-street nuisance ponding under uniform Tier 0 in separate-MS4 flatlands will be re-tested in v0.7 using mean-rate-matched Tier 1a/1b drainage and optional Tier 2 municipal GIS inputs. Pumped coastal polders (such as East Palo Alto, Foster City, and Bay Farm Island) will incorporate explicit <code>polder_mask_source</code> exclusions and SFINCS pump structures, and open-coast Pacific wave setup and runup at Ocean Beach can be coupled through SFINCS SnapWave (Leijnse et al., 2021).
+          </p>
+          <p>
+            Without complete 1D pipe-invert elevations and hydraulic grade lines across 101 Bay Area jurisdictions, subsurface trunk surcharging, individual clogged catch basins, and uphill lateral backups cannot be explicitly resolved in a 2D-only model. Although simplified upwind advection is enabled, SFINCS's local-inertial formulation is not a shock-capturing full shallow-water solver, so supercritical sheetflow on steep hillsides (&gt; 10% slope, such as Twin Peaks or Bernal Heights) remains approximate (Leijnse et al., 2021; van Ormondt et al., 2025).
+          </p>
+
+          <h3>Uncalibrated Spatial Transfer (v0.7 to v1.0)</h3>
+          <p>
+            In the next development cycle (v0.7), the frozen v0.6 defaults will be run unmodified as an uncalibrated spatial transfer baseline on the San Francisquito Creek and East Palo Alto separate-MS4 watershed, validating against USGS stream gauge 11164500 and county benchmarks before adding pumped-polder structures or separate-MS4 drainage tests. This establishes a watershed-based parameterization without county-line seams ahead of the nine-county v1.0 regional mosaic.
+          </p>
+        </section>
+
+        <!-- DISCLOSURE -->
+        <section id="sec-disclosure" class="content-section">
+          <h2>Disclosure</h2>
+          <p>
+            Google Gemini models (Gemini 4 Hydrogen, Argon, and Neon) were used to assist with drafting and refactoring the data-processing pipeline, web viewer, and technical documentation for this project. All hydrodynamic simulations were run directly with Deltares SFINCS, all validation metrics were computed programmatically against the cited public datasets, and all modeling choices, numerical results, and literature citations were reviewed and verified by the project author.
+          </p>
+          <p>
+            Results published on this site are exploratory, screening-level estimates intended for research and public awareness. They are not parcel-exact engineering design depths, official FEMA regulatory flood determinations, or emergency evacuation guidance.
+          </p>
+        </section>
+
+        <!-- DATA SOURCES & REFERENCES -->
+        <section id="sec-provenance" class="content-section">
+          <h2>Data Sources &amp; References</h2>
+
+          <h3>Core Upstream Datasets</h3>
+          <p class="table-caption">
+            <strong>Table 5.</strong> Upstream geospatial, hydrometeorological, and validation datasets and software dependencies.
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Dataset / Software</th>
+                  <th>Provider / Source</th>
+                  <th>License / Terms</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>USGS 3DEP 1 m LiDAR DEM (CA_SanFrancisco_B23)</td>
+                  <td>USGS The National Map</td>
+                  <td>Public Domain</td>
+                </tr>
+                <tr>
+                  <td>Annual NLCD 2021 (Land Cover &amp; Imperviousness)</td>
+                  <td>Multi-Resolution Land Characteristics Consortium (MRLC) / USGS</td>
+                  <td>Public Domain</td>
+                </tr>
+                <tr>
+                  <td>USDA SSURGO Hydrologic Soil Groups (CA689)</td>
+                  <td>USDA NRCS</td>
+                  <td>Public Domain</td>
+                </tr>
+                <tr>
+                  <td>SF Bay Shore Inventory (2016; 2020 update)</td>
+                  <td>San Francisco Estuary Institute (SFEI)</td>
+                  <td>GNU GPL v3.0</td>
+                </tr>
+                <tr>
+                  <td>OpenStreetMap Roads, Bridges &amp; Tunnels</td>
+                  <td>OpenStreetMap contributors</td>
+                  <td>Open Database License (ODbL 1.0)</td>
+                </tr>
+                <tr>
+                  <td>SF Buildings (ynuv-fyni), SFPUC 100-Yr (jzu3-4yxp), 311 (vw6y-z8j6), DEM/SFFD</td>
+                  <td>City &amp; County of San Francisco / DataSF</td>
+                  <td>Open Data Commons PDDL (Public Domain Dedication and License)</td>
+                </tr>
+                <tr>
+                  <td>NOAA CO-OPS Tides, Atlas 14 Intensity&ndash;Duration&ndash;Frequency (IDF), MRMS 1 km QPE</td>
+                  <td>NOAA CO-OPS / National Weather Service (NWS) / National Severe Storms Laboratory (NSSL)</td>
+                  <td>Public Domain</td>
+                </tr>
+                <tr>
+                  <td>Google Research Groundsource (<a href="https://doi.org/10.5281/zenodo.18647054" target="_blank" rel="noopener noreferrer">10.5281/zenodo.18647054</a>)</td>
+                  <td>Google Research (Zenodo)</td>
+                  <td>CC BY 4.0</td>
+                </tr>
+                <tr>
+                  <td>OpenFEMA NFIP Redacted Claims (v3/NfipClaims)</td>
+                  <td>FEMA OpenFEMA API</td>
+                  <td>Public Domain</td>
+                </tr>
+                <tr>
+                  <td>Deltares SFINCS (<code>deltares/sfincs-cpu</code>) &amp; MapLibre GL JS</td>
+                  <td>Deltares / OpenFreeMap / MapLibre</td>
+                  <td>Deltares FreeWare / BSD-3 / MIT</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>References</h3>
+          <ul class="ref-list">
+            <li>
+              <strong>Agonafir, C., Ramirez Pabon, A., Lakhankar, T., Khanbilvardi, R., &amp; Devineni, N. (2022).</strong> Understanding New York City street flooding through 311 complaints. <em>Journal of Hydrology</em>, 605, 127300. <a href="https://doi.org/10.1016/j.jhydrol.2021.127300" target="_blank" rel="noopener noreferrer">https://doi.org/10.1016/j.jhydrol.2021.127300</a>
+            </li>
+            <li>
+              <strong>Bates, P. D., Quinn, N., Sampson, C., Smith, A., Wing, O., et al. (2021).</strong> Combined modeling of US fluvial, pluvial, and coastal flood hazard under current and future climates. <em>Water Resources Research</em>, 57(2), e2020WR028673. <a href="https://doi.org/10.1029/2020WR028673" target="_blank" rel="noopener noreferrer">https://doi.org/10.1029/2020WR028673</a>
+            </li>
+            <li>
+              <strong>California Ocean Protection Council (2024).</strong> <em>State of California Sea Level Rise Guidance: 2024 Science and Policy Update.</em> California Natural Resources Agency. <a href="https://opc.ca.gov/sea-level-rise-guidance-2024/" target="_blank" rel="noopener noreferrer">https://opc.ca.gov/sea-level-rise-guidance-2024/</a>
+            </li>
+            <li>
+              <strong>Chow, V. T., Maidment, D. R., &amp; Mays, L. W. (1988).</strong> <em>Applied Hydrology.</em> McGraw-Hill, New York.
+            </li>
+            <li>
+              <strong>Eilander, D., Couasnon, A., Leijnse, T., Ikeuchi, H., Yamazaki, D., et al. (2023).</strong> A globally applicable framework for compound flood hazard modeling. <em>Natural Hazards and Earth System Sciences</em>, 23, 823&ndash;846. <a href="https://doi.org/10.5194/nhess-23-823-2023" target="_blank" rel="noopener noreferrer">https://doi.org/10.5194/nhess-23-823-2023</a>
+            </li>
+            <li>
+              <strong>Grimley, L. E., Sebastian, A., Leijnse, T., Eilander, D., Ratcliff, J., &amp; Luettich, R. (2025).</strong> Determining the relative contributions of runoff, coastal, and compound processes to flood exposure across the Carolinas during Hurricane Florence. <em>Water Resources Research</em>, 61(3), e2023WR036727. <a href="https://doi.org/10.1029/2023WR036727" target="_blank" rel="noopener noreferrer">https://doi.org/10.1029/2023WR036727</a>
+            </li>
+            <li>
+              <strong>Leijnse, T. W. B., van Ormondt, M., Nederhoff, K., &amp; van Dongeren, A. R. (2021).</strong> Modeling compound flooding in coastal systems using a computationally efficient reduced-physics solver: Including fluvial, pluvial, tidal, wind- and wave-driven processes. <em>Coastal Engineering</em>, 163, 103796. <a href="https://doi.org/10.1016/j.coastaleng.2020.103796" target="_blank" rel="noopener noreferrer">https://doi.org/10.1016/j.coastaleng.2020.103796</a>
+            </li>
+            <li>
+              <strong>Lerma, N. R., Goodall, J. L., &amp; Quinn, J. D. (2025).</strong> Uncovering the drivers of urban flood reports: An environmental and socioeconomic analysis using 311 data. <em>Water</em>, 17(21), 3178. <a href="https://doi.org/10.3390/w17213178" target="_blank" rel="noopener noreferrer">https://doi.org/10.3390/w17213178</a>
+            </li>
+            <li>
+              <strong>Nederhoff, K., Saleh, R., Tehranirad, B., Herdman, L., Erikson, L., Barnard, P. L., et al. (2021).</strong> Drivers of extreme water levels in a large, urban, high-energy coastal estuary &ndash; A case study of the San Francisco Bay. <em>Coastal Engineering</em>, 170, 103984. <a href="https://doi.org/10.1016/j.coastaleng.2021.103984" target="_blank" rel="noopener noreferrer">https://doi.org/10.1016/j.coastaleng.2021.103984</a>
+            </li>
+            <li>
+              <strong>Perica, S., Dietz, S., Heim, S., Hiner, L., Maitaria, K., et al. (2011; rev. 2014).</strong> <em>NOAA Atlas 14: Precipitation-Frequency Atlas of the United States, Volume 6 Version 2.3: California.</em> NOAA, National Weather Service, Silver Spring, MD. <a href="https://hdsc.nws.noaa.gov/pfds/" target="_blank" rel="noopener noreferrer">https://hdsc.nws.noaa.gov/pfds/</a>
+            </li>
+            <li>
+              <strong>Praharaj, S., Zahura, F. T., Chen, T. D., Shen, Y., Zeng, L., &amp; Goodall, J. L. (2021).</strong> Assessing trustworthiness of crowdsourced flood incident reports using Waze data: A Norfolk, Virginia case study. <em>Transportation Research Record</em>, 2675(12), 650&ndash;662. <a href="https://doi.org/10.1177/03611981211031212" target="_blank" rel="noopener noreferrer">https://doi.org/10.1177/03611981211031212</a>
+            </li>
+            <li>
+              <strong>Sanders, B. F., &amp; Schubert, J. E. (2019).</strong> PRIMo: Parallel raster inundation model. <em>Advances in Water Resources</em>, 126, 79&ndash;95. <a href="https://doi.org/10.1016/j.advwatres.2019.02.007" target="_blank" rel="noopener noreferrer">https://doi.org/10.1016/j.advwatres.2019.02.007</a>
+            </li>
+            <li>
+              <strong>Sanders, B. F., Schubert, J. E., Kahl, D. T., Mach, K. J., Brady, D., et al. (2023).</strong> Large and inequitable flood risks in Los Angeles, California. <em>Nature Sustainability</em>, 6, 47&ndash;57. <a href="https://doi.org/10.1038/s41893-022-00977-7" target="_blank" rel="noopener noreferrer">https://doi.org/10.1038/s41893-022-00977-7</a>
+            </li>
+            <li>
+              <strong>Schubert, J. E., &amp; Sanders, B. F. (2012).</strong> Building treatments for urban flood inundation models and implications for predictive skill and modeling efficiency. <em>Advances in Water Resources</em>, 41, 49&ndash;64. <a href="https://doi.org/10.1016/j.advwatres.2012.02.012" target="_blank" rel="noopener noreferrer">https://doi.org/10.1016/j.advwatres.2012.02.012</a>
+            </li>
+            <li>
+              <strong>Schubert, J. E., Mach, K. J., &amp; Sanders, B. F. (2024).</strong> National-scale flood hazard data unfit for urban risk management. <em>Earth's Future</em>, 12(7), e2024EF004549. <a href="https://doi.org/10.1029/2024EF004549" target="_blank" rel="noopener noreferrer">https://doi.org/10.1029/2024EF004549</a>
+            </li>
+            <li>
+              <strong>USDA Natural Resources Conservation Service (2004).</strong> <em>National Engineering Handbook, Part 630: Hydrology, Chapter 10 &mdash; Estimation of Direct Runoff from Storm Rainfall.</em> U.S. Department of Agriculture, Washington, DC.
+            </li>
+            <li>
+              <strong>van Ormondt, M., Leijnse, T., de Goede, R., Nederhoff, K., &amp; van Dongeren, A. (2025).</strong> Subgrid corrections for the linear inertial equations of a compound flood model &ndash; a case study using SFINCS 2.1.1 Dollerup release. <em>Geoscientific Model Development</em>, 18, 843&ndash;861. <a href="https://doi.org/10.5194/gmd-18-843-2025" target="_blank" rel="noopener noreferrer">https://doi.org/10.5194/gmd-18-843-2025</a>
+            </li>
+            <li>
+              <strong>Wing, O. E. J., Pinter, N., Bates, P. D., &amp; Kousky, C. (2020).</strong> New insights into US flood vulnerability revealed from flood insurance big data. <em>Nature Communications</em>, 11, 1444. <a href="https://doi.org/10.1038/s41467-020-15264-2" target="_blank" rel="noopener noreferrer">https://doi.org/10.1038/s41467-020-15264-2</a>
+            </li>
+            <li>
+              <strong>Zhang, J., Howard, K., Langston, C., Kaney, B., Qi, Y., et al. (2016).</strong> Multi-Radar Multi-Sensor (MRMS) Quantitative Precipitation Estimation: Initial Operating Capabilities. <em>Bulletin of the American Meteorological Society</em>, 97(4), 621&ndash;638. <a href="https://doi.org/10.1175/BAMS-D-14-00174.1" target="_blank" rel="noopener noreferrer">https://doi.org/10.1175/BAMS-D-14-00174.1</a>
+            </li>
+          </ul>
+        </section>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <span>SF Bay Urban Flood Map &middot; v0.6 &middot; Apache-2.0</span>
+        <nav class="footer-links" aria-label="Footer navigation">
+          <a href="./">Flood Map</a>
+          <a href="./about.html">About</a>
+          <a href="./methodology.html">Methodology</a>
+          <a href="https://github.com/petermodracee/bay-urban-flood-map" target="_blank" rel="noopener noreferrer">GitHub</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

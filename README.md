@@ -4,7 +4,7 @@ An open-source urban stormwater and compound sea level rise (SLR) flood model an
 
 **Live Viewer:** https://bay-urban-flood-map.pages.dev
 
-**Status:** `v0.6` Phases 1–3 complete ([`docs/plan/PLAN_V06.md`](docs/plan/PLAN_V06.md), [`docs/reports/sf_v06_calibration_report.md`](docs/reports/sf_v06_calibration_report.md)) — upgraded 3D web viewer with Tier A–E validation overlays, reproducible Phase 2A terrain QA, anti-overfitting Phase 2B calibration across 5 Atmospheric Rivers (`2,071` 311 points) + SFPUC 100-yr, and full 18-scenario `v0.6` `EPSG:3857` COG export (`manifest.json`). Next up: `v0.6` Phase 4 (Public & Technical Methodology pages) and Phase 5 (Cloudflare R2/Pages publish & Zenodo DOIs), followed by `v0.7` San Francisquito Creek / East Palo Alto separate-MS4 pilot.
+**Status:** `v0.6` Phases 1–4 complete ([`docs/plan/PLAN_V06.md`](docs/plan/PLAN_V06.md), [`docs/reports/sf_v06_calibration_report.md`](docs/reports/sf_v06_calibration_report.md)) — upgraded 3D web viewer with Tier A–E validation overlays, reproducible Phase 2A terrain QA, anti-overfitting Phase 2B calibration across 5 Atmospheric Rivers (`2,071` 311 points) + SFPUC 100-yr, full 18-scenario `v0.6` `EPSG:3857` COG export (`manifest.json`), and public (`web/about.html`) + technical (`web/methodology.html`) methodology pages. Next up: `v0.6` Phase 5 (Cloudflare R2/Pages publish & Zenodo DOIs), followed by `v0.7` San Francisquito Creek / East Palo Alto separate-MS4 pilot.
 
 > **Note:** This is a screening-level 2D overland pooling and coastal-compound flood model grounded in peer-reviewed literature and gated by controlled A/B ablations (see [`docs/METHODS.md`](docs/METHODS.md) and [`docs/DECISIONS.md`](docs/DECISIONS.md)). It is not a 1D parcel-level storm-pipe capacity model or a regulatory FEMA flood map.
 
@@ -53,7 +53,7 @@ An open-source urban stormwater and compound sea level rise (SLR) flood model an
 │   ├── 02_build_sfincs.py    # HydroMT-SFINCS builder & Docker solver runner
 │   ├── 03_validate_sf.py     # 5-tier open multi-source validation (Tiers A–E) + report generator
 │   └── 04_export_cog.py      # Downscale, SLR deltas, GeoJSON, & EPSG:3857 COGs
-├── web/                      # Vite + MapLibre GL + maplibre-cog-protocol viewer
+├── web/                      # Vite + MapLibre GL viewer (index.html, about.html, methodology.html)
 ├── data/                     # Local raw/processed/runs/web outputs (git-ignored)
 └── environment.yml           # Conda environment (conda-forge)
 ```
