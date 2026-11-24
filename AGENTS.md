@@ -7,7 +7,7 @@ The repo has two decoupled halves connected only by static files in `data/web_ou
 - **`pipeline/` (Python + Docker):** Uses `HydroMT-SFINCS` (2D rain-on-grid with 1m–2m subgrid terrain) to simulate storm + SLR scenarios and export `EPSG:3857` Cloud Optimized GeoTIFFs (COGs).
 - **`web/` (Vite + MapLibre GL JS):** A serverless static web viewer that streams those COGs directly in the browser with client-side color ramps and click-to-query flood depths.
 
-**Current Focus:** `v0.4` SF literature upgrades & MRMS ensemble ablation complete (`main`); active `v0.5` 5-tier open validation layer (`docs/plan/PLAN_V05.md`, `docs/VALIDATION_SPEC.md`), followed by `v0.6` SF multi-tier calibration audit and `v0.7` San Francisquito Creek / East Palo Alto separate-MS4 pilot.
+**Current Focus:** `v0.5` 5-tier open multi-source validation baseline complete ([`docs/reports/sf_v05_multitier_validation.md`](docs/reports/sf_v05_multitier_validation.md)); next up: `v0.6` SF multi-tier calibration audit and `v0.7` San Francisquito Creek / East Palo Alto separate-MS4 pilot.
 
 ## Hard Invariants
 - **Python Environment:** Use `conda-forge` strictly (`environment.yml`). Do not mix `pip` geospatial binaries with conda packages.

@@ -46,6 +46,24 @@ DATASF_100YR_URL = (
 DATASF_311_URL = "https://data.sfgov.org/resource/vw6y-z8j6.json"
 NOAA_COOPS_URL = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
 OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+CALTRANS_D4_LCS_URL = "https://cwwp2.dot.ca.gov/data/d4/lcs/lcsStatusD04.json"
+CALTRANS_D4_CHP_URL = "https://cwwp2.dot.ca.gov/data/d4/chp/chpIncidentsD04.json"
+DATASF_DEM_CALLS_URL = "https://data.sf.gov/resource/2zdj-bwza.json"
+DATASF_SFFD_CALLS_URL = "https://data.sf.gov/resource/nuek-vuh3.json"
+OPENFEMA_NFIP_CLAIMS_URL = "https://www.fema.gov/api/open/v3/NfipClaims"
+TIGERWEB_TRACTS_URL = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/0/query"
+GROUNDSOURCE_PARQUET_URL = (
+    "https://zenodo.org/records/18647054/files/groundsource_2026.parquet?download=1"
+)
+FLOOD_ROAD_CLOSURE_KEYWORDS = (
+    "flood",
+    "flooding",
+    "standing water",
+    "high water",
+    "ponding",
+    "mudslide",
+    "washout",
+)
 DEFAULT_HTTP_TIMEOUT_S = 180
 
 
@@ -573,6 +591,317 @@ def parse_datasf_311_flood_reports(
             crs="EPSG:4326",
         )
     return gpd.GeoDataFrame(parsed_rows, geometry=geometries, crs="EPSG:4326")
+
+
+def is_flood_road_closure(
+    text: str | None,
+    keywords: Sequence[str] = FLOOD_ROAD_CLOSURE_KEYWORDS,
+) -> bool:
+    """Return True when a road-closure description/type matches flood keywords."""
+    if not text:
+        return False
+    lowered = str(text).lower()
+    return any(str(kw).lower() in lowered for kw in keywords)
+
+
+def _within_wgs84_bbox(
+    lon: float, lat: float, bbox_wgs84: Sequence[float] | None
+) -> bool:
+    if bbox_wgs84 is None:
+        return True
+    xmin, ymin, xmax, ymax = (float(v) for v in bbox_wgs84)
+    return xmin <= lon <= xmax and ymin <= lat <= ymax
+
+
+def parse_caltrans_lcs_json(
+    payload: Mapping[str, Any],
+    bbox_wgs84: Sequence[float] | None = None,
+    flood_only: bool = True,
+) -> gpd.GeoDataFrame:
+    """Parse Caltrans QuickMap/CWWP2 LCS JSON into an EPSG:4326 Point GeoDataFrame."""
+    columns = ["event_id", "source", "corridor", "description", "timestamp_utc"]
+    parsed_rows: list[dict[str, Any]] = []
+    geometries: list[Point] = []
+
+    for item in payload.get("data", []):
+        lcs = item.get("lcs", item) if isinstance(item, Mapping) else {}
+        if not isinstance(lcs, Mapping):
+            continue
+        loc = lcs.get("location", {}) or {}
+        begin = loc.get("begin", {}) or {}
+        closure = lcs.get("closure", {}) or {}
+
+        try:
+            lat = float(begin["beginLatitude"])
+            lon = float(begin["beginLongitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (math.isfinite(lat) and math.isfinite(lon)):
+            continue
+        if not _within_wgs84_bbox(lon, lat, bbox_wgs84):
+            continue
+
+        desc_parts = [
+            str(closure.get("typeOfWork") or ""),
+            str(closure.get("typeOfClosure") or ""),
+            str(closure.get("closureComments") or ""),
+            str(begin.get("beginLocationName") or ""),
+        ]
+        description = " | ".join(p for p in desc_parts if p.strip())
+        if flood_only and not is_flood_road_closure(description):
+            continue
+
+        ts_info = closure.get("closureTimestamp", {}) or {}
+        ts_val = (
+            ts_info.get("closureStartDate") or ts_info.get("closureStartEpoch") or ""
+        )
+        corridor = str(
+            begin.get("beginRoute") or begin.get("beginLocationName") or ""
+        ).strip()
+
+        parsed_rows.append(
+            {
+                "event_id": str(closure.get("closureID") or lcs.get("index") or ""),
+                "source": "caltrans_lcs",
+                "corridor": corridor,
+                "description": description,
+                "timestamp_utc": str(ts_val),
+            }
+        )
+        geometries.append(Point(lon, lat))
+
+    if not parsed_rows:
+        return gpd.GeoDataFrame(
+            {col: [] for col in columns},
+            geometry=gpd.GeoSeries([], crs="EPSG:4326"),
+            crs="EPSG:4326",
+        )
+    return gpd.GeoDataFrame(parsed_rows, geometry=geometries, crs="EPSG:4326")
+
+
+def parse_511_events_json(
+    payload: Mapping[str, Any],
+    bbox_wgs84: Sequence[float] | None = None,
+    flood_only: bool = True,
+) -> gpd.GeoDataFrame:
+    """Parse 511 SF Bay Open511 traffic events JSON into an EPSG:4326 GeoDataFrame."""
+    columns = ["event_id", "source", "corridor", "description", "timestamp_utc"]
+    parsed_rows: list[dict[str, Any]] = []
+    geometries: list[Point | LineString] = []
+
+    for ev in payload.get("events", []):
+        if not isinstance(ev, Mapping):
+            continue
+        geom_obj = ev.get("geography") or {}
+        gtype = str(geom_obj.get("type") or "")
+        coords = geom_obj.get("coordinates")
+        geom: Point | LineString | None = None
+        try:
+            if gtype == "Point" and isinstance(coords, Sequence) and len(coords) >= 2:
+                lon, lat = float(coords[0]), float(coords[1])
+                if math.isfinite(lon) and math.isfinite(lat):
+                    geom = Point(lon, lat)
+            elif (
+                gtype == "LineString"
+                and isinstance(coords, Sequence)
+                and len(coords) >= 2
+            ):
+                pts = [(float(c[0]), float(c[1])) for c in coords]
+                if all(math.isfinite(x) and math.isfinite(y) for x, y in pts):
+                    geom = LineString(pts)
+        except (TypeError, ValueError, IndexError):
+            continue
+        if geom is None:
+            continue
+
+        centroid = geom.centroid
+        if not _within_wgs84_bbox(float(centroid.x), float(centroid.y), bbox_wgs84):
+            continue
+
+        headline = str(ev.get("headline") or "")
+        desc = str(ev.get("description") or "")
+        ev_type = str(ev.get("event_type") or "")
+        combined = " | ".join(p for p in (headline, desc, ev_type) if p.strip())
+        if flood_only and not is_flood_road_closure(combined):
+            continue
+
+        roads = ev.get("roads") or []
+        corridor = ""
+        if isinstance(roads, Sequence) and roads:
+            first_road = roads[0]
+            if isinstance(first_road, Mapping):
+                corridor = str(first_road.get("name") or "")
+
+        parsed_rows.append(
+            {
+                "event_id": str(ev.get("id") or ""),
+                "source": "511_sf_bay",
+                "corridor": corridor,
+                "description": combined,
+                "timestamp_utc": str(ev.get("updated") or ev.get("created") or ""),
+            }
+        )
+        geometries.append(geom)
+
+    if not parsed_rows:
+        return gpd.GeoDataFrame(
+            {col: [] for col in columns},
+            geometry=gpd.GeoSeries([], crs="EPSG:4326"),
+            crs="EPSG:4326",
+        )
+    return gpd.GeoDataFrame(parsed_rows, geometry=geometries, crs="EPSG:4326")
+
+
+def _normalize_census_tract(value: Any) -> str | None:
+    """Normalize a census tract identifier to an 11-digit FIPS/GEOID string."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "null", "na"}:
+        return None
+    text = text.removesuffix(".0")
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if not digits:
+        return None
+    if len(digits) >= 12:
+        return digits[:11]
+    return digits.zfill(11)
+
+
+def _safe_float(value: Any) -> float:
+    if value is None:
+        return 0.0
+    try:
+        val = float(value)
+        return val if math.isfinite(val) else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def parse_openfema_nfip_claims(
+    payload: Mapping[str, Any] | Sequence[Mapping[str, Any]],
+    *,
+    county_fips: str | None = None,
+    start_year: int | None = None,
+) -> pd.DataFrame:
+    """Parse OpenFEMA FimaNfipClaims JSON into tract-level aggregated claim totals."""
+    columns = [
+        "census_tract",
+        "claim_count",
+        "paid_claim_count",
+        "paid_building_usd",
+        "paid_contents_usd",
+        "total_paid_usd",
+    ]
+    if isinstance(payload, Mapping):
+        records = (
+            payload.get("NfipClaims")
+            or payload.get("FimaNfipClaims")
+            or payload.get("data")
+            or []
+        )
+    else:
+        records = payload
+
+    county_norm = str(county_fips).strip().zfill(5) if county_fips else None
+    agg: dict[str, dict[str, float | int]] = {}
+    for rec in records:
+        if not isinstance(rec, Mapping):
+            continue
+        tract = _normalize_census_tract(
+            rec.get("censusTract") or rec.get("censusGeoid")
+        )
+        if tract is None:
+            continue
+        if county_norm is not None:
+            rec_county = str(rec.get("countyCode") or "").strip()
+            rec_county_norm = rec_county.zfill(5) if rec_county.isdigit() else ""
+            if rec_county_norm:
+                if rec_county_norm != county_norm:
+                    continue
+            elif not tract.startswith(county_norm):
+                continue
+        if start_year is not None:
+            year_val = rec.get("yearOfLoss")
+            try:
+                if year_val is None or int(year_val) < int(start_year):
+                    continue
+            except (TypeError, ValueError):
+                continue
+
+        paid_bldg = _safe_float(rec.get("amountPaidOnBuildingClaim"))
+        paid_cont = _safe_float(rec.get("amountPaidOnContentsClaim"))
+        paid_icc = _safe_float(rec.get("amountPaidOnIncreasedCostOfComplianceClaim"))
+        total_paid = paid_bldg + paid_cont + paid_icc
+
+        bucket = agg.setdefault(
+            tract,
+            {
+                "claim_count": 0,
+                "paid_claim_count": 0,
+                "paid_building_usd": 0.0,
+                "paid_contents_usd": 0.0,
+                "total_paid_usd": 0.0,
+            },
+        )
+        bucket["claim_count"] += 1
+        if total_paid > 0.0:
+            bucket["paid_claim_count"] += 1
+        bucket["paid_building_usd"] += paid_bldg
+        bucket["paid_contents_usd"] += paid_cont
+        bucket["total_paid_usd"] += total_paid
+
+    if not agg:
+        return pd.DataFrame(columns=columns)
+
+    rows = [
+        {
+            "census_tract": tract,
+            "claim_count": int(vals["claim_count"]),
+            "paid_claim_count": int(vals["paid_claim_count"]),
+            "paid_building_usd": round(float(vals["paid_building_usd"]), 2),
+            "paid_contents_usd": round(float(vals["paid_contents_usd"]), 2),
+            "total_paid_usd": round(float(vals["total_paid_usd"]), 2),
+        }
+        for tract, vals in sorted(agg.items())
+    ]
+    return pd.DataFrame(rows, columns=columns)
+
+
+def join_nfip_claims_to_tracts(
+    claims_df: pd.DataFrame,
+    tracts_gdf: gpd.GeoDataFrame,
+    *,
+    tract_id_col: str = "GEOID",
+    target_crs: str = "EPSG:26910",
+) -> gpd.GeoDataFrame:
+    """Join tract-aggregated OpenFEMA NFIP claims onto census tract polygons."""
+    if tracts_gdf.crs is None:
+        raise ValueError("tracts_gdf is missing CRS.")
+    tracts = tracts_gdf.copy()
+    if tract_id_col not in tracts.columns:
+        for alt in ("GEOID", "geoid", "GEOID20", "census_tract", "TRACTCE"):
+            if alt in tracts.columns:
+                tract_id_col = alt
+                break
+        else:
+            raise ValueError(
+                f"Tract ID column {tract_id_col!r} not found in tracts_gdf."
+            )
+    tracts["census_tract"] = tracts[tract_id_col].map(_normalize_census_tract)
+    tracts = tracts[tracts["census_tract"].notna()].copy()
+
+    merged = tracts[["census_tract", "geometry"]].merge(
+        claims_df, on="census_tract", how="left"
+    )
+    for col in ("claim_count", "paid_claim_count"):
+        merged[col] = merged[col].fillna(0).astype(int)
+    for col in ("paid_building_usd", "paid_contents_usd", "total_paid_usd"):
+        merged[col] = merged[col].fillna(0.0).astype(float)
+
+    if CRS.from_user_input(merged.crs) != CRS.from_user_input(target_crs):
+        merged = merged.to_crs(target_crs)
+    return merged
 
 
 def _assert_crs(actual_crs: Any, expected_epsg: str, label: str) -> None:
@@ -1382,6 +1711,408 @@ def _fetch_ensemble_311(
         )
 
 
+def _extract_geojson_point_lonlat(geom_obj: Any) -> tuple[float, float] | None:
+    """Extract (lon, lat) from a GeoJSON Point dict."""
+    if not isinstance(geom_obj, Mapping):
+        return None
+    coords = geom_obj.get("coordinates")
+    if not isinstance(coords, Sequence) or len(coords) < 2:
+        return None
+    try:
+        lon, lat = float(coords[0]), float(coords[1])
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(lon) and math.isfinite(lat)):
+        return None
+    return lon, lat
+
+
+def _parse_datasf_point_records(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    id_field: str,
+    timestamp_field: str,
+    category_field: str,
+    default_category: str,
+    geom_field: str,
+    source_name: str,
+    bbox_wgs84: Sequence[float] | None = None,
+) -> gpd.GeoDataFrame:
+    """Parse DataSF Socrata point records into standardized Tier C schema, deduped by id_field."""
+    parsed_rows: list[dict[str, Any]] = []
+    geometries: list[Point] = []
+    seen_ids: set[str] = set()
+    xmin = ymin = xmax = ymax = 0.0
+    if bbox_wgs84 is not None:
+        xmin, ymin, xmax, ymax = (float(v) for v in bbox_wgs84)
+
+    for rec in records:
+        if not isinstance(rec, Mapping):
+            continue
+        rec_id = str(rec.get(id_field) or "").strip()
+        if rec_id:
+            if rec_id in seen_ids:
+                continue
+            seen_ids.add(rec_id)
+        lonlat = _extract_geojson_point_lonlat(rec.get(geom_field))
+        if lonlat is None:
+            continue
+        lon, lat = lonlat
+        if bbox_wgs84 is not None and not (xmin <= lon <= xmax and ymin <= lat <= ymax):
+            continue
+        parsed_rows.append(
+            {
+                "record_id": rec_id or None,
+                "timestamp": str(rec.get(timestamp_field) or "").strip(),
+                "category": str(rec.get(category_field) or default_category).strip(),
+                "source": source_name,
+            }
+        )
+        geometries.append(Point(lon, lat))
+
+    cols = ["record_id", "timestamp", "category", "source"]
+    if not parsed_rows:
+        return gpd.GeoDataFrame(
+            {c: [] for c in cols},
+            geometry=gpd.GeoSeries([], crs="EPSG:4326"),
+            crs="EPSG:4326",
+        )
+    return gpd.GeoDataFrame(parsed_rows, geometry=geometries, crs="EPSG:4326")
+
+
+def parse_datasf_dem_traffic_hazards(
+    records: Sequence[Mapping[str, Any]],
+    bbox_wgs84: Sequence[float] | None = None,
+) -> gpd.GeoDataFrame:
+    """Parse SF DEM Dispatched Calls (2zdj-bwza) TRAFFIC HAZARD records."""
+    return _parse_datasf_point_records(
+        records,
+        id_field="cad_number",
+        timestamp_field="received_datetime",
+        category_field="call_type_final_desc",
+        default_category="TRAFFIC HAZARD",
+        geom_field="intersection_point",
+        source_name="datasf_dem_2zdj",
+        bbox_wgs84=bbox_wgs84,
+    )
+
+
+def parse_datasf_sffd_water_rescues(
+    records: Sequence[Mapping[str, Any]],
+    bbox_wgs84: Sequence[float] | None = None,
+) -> gpd.GeoDataFrame:
+    """Parse SFFD Fire Calls (nuek-vuh3) Water Rescue records, deduplicated by incident_number."""
+    return _parse_datasf_point_records(
+        records,
+        id_field="incident_number",
+        timestamp_field="received_dttm",
+        category_field="call_type",
+        default_category="Water Rescue",
+        geom_field="case_location",
+        source_name="datasf_sffd_nuek",
+        bbox_wgs84=bbox_wgs84,
+    )
+
+
+def merge_standardized_tier_c_records(
+    frames: Sequence[gpd.GeoDataFrame],
+    target_crs: str = "EPSG:26910",
+) -> gpd.GeoDataFrame:
+    """Concatenate standardized Tier C point GeoDataFrames and project to target_crs."""
+    cols = ["record_id", "timestamp", "category", "source"]
+    non_empty: list[gpd.GeoDataFrame] = []
+    for frame in frames:
+        if frame is None or frame.empty:
+            continue
+        f_copy = frame.copy()
+        if f_copy.crs is None:
+            f_copy = f_copy.set_crs("EPSG:4326")
+        if str(f_copy.crs) != "EPSG:4326":
+            f_copy = f_copy.to_crs("EPSG:4326")
+        for col in cols:
+            if col not in f_copy.columns:
+                f_copy[col] = None
+        non_empty.append(f_copy[[*cols, "geometry"]])
+
+    if not non_empty:
+        return gpd.GeoDataFrame(
+            {c: [] for c in cols},
+            geometry=gpd.GeoSeries([], crs=target_crs),
+            crs=target_crs,
+        )
+    merged = gpd.GeoDataFrame(
+        pd.concat(non_empty, ignore_index=True), geometry="geometry", crs="EPSG:4326"
+    )
+    return (
+        merged.to_crs(target_crs)
+        if CRS.from_user_input(merged.crs) != CRS.from_user_input(target_crs)
+        else merged
+    )
+
+
+def _fetch_socrata_pages(
+    base_url: str,
+    where_clause: str,
+    page_size: int = 5000,
+) -> list[dict[str, Any]]:
+    """Paginate a DataSF Socrata JSON endpoint with $where, $limit, and $offset."""
+    all_rows: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        resp = requests.get(
+            base_url,
+            params={"$where": where_clause, "$limit": page_size, "$offset": offset},
+            timeout=DEFAULT_HTTP_TIMEOUT_S,
+        )
+        resp.raise_for_status()
+        batch = resp.json()
+        if not batch:
+            break
+        all_rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+    return all_rows
+
+
+def _fetch_ensemble_road_closures(
+    cfg: Mapping[str, Any],
+    buffered_wgs84_bbox: Sequence[float],
+    project_crs: str = "EPSG:26910",
+    force: bool = False,
+) -> None:
+    """Fetch optional Tier C roadway/emergency disruption feeds per ensemble event."""
+    ensemble_cfg = cfg.get("validation", {}).get("hindcast_ensemble") or []
+    for ev in ensemble_cfg:
+        out_raw = ev.get("road_closures_file")
+        if not out_raw:
+            continue
+        provider = str(ev.get("road_closures_provider") or "").strip().lower()
+        url = ev.get("road_closures_url")
+        if not provider and not url:
+            continue
+
+        out_path = Path(out_raw)
+        if out_path.exists() and not force:
+            print(f"[00_fetch_data] Cached Tier C road closures -> {out_path}")
+            continue
+
+        if provider == "datasf_emergency":
+            start_utc = str(
+                ev.get("road_closures_start_utc") or ev["validation_311_start_utc"]
+            )
+            end_utc = str(
+                ev.get("road_closures_end_utc") or ev["validation_311_end_utc"]
+            )
+            dem_rows = _fetch_socrata_pages(
+                DATASF_DEM_CALLS_URL,
+                (
+                    "call_type_final_desc = 'TRAFFIC HAZARD' "
+                    f"AND received_datetime between '{start_utc}' and '{end_utc}'"
+                ),
+            )
+            sffd_rows = _fetch_socrata_pages(
+                DATASF_SFFD_CALLS_URL,
+                (
+                    "call_type = 'Water Rescue' "
+                    f"AND received_dttm between '{start_utc}' and '{end_utc}'"
+                ),
+            )
+            dem_gdf = parse_datasf_dem_traffic_hazards(
+                dem_rows, bbox_wgs84=buffered_wgs84_bbox
+            )
+            sffd_gdf = parse_datasf_sffd_water_rescues(
+                sffd_rows, bbox_wgs84=buffered_wgs84_bbox
+            )
+            gdf = merge_standardized_tier_c_records(
+                [dem_gdf, sffd_gdf], target_crs=project_crs
+            )
+        else:
+            resp = requests.get(str(url), timeout=DEFAULT_HTTP_TIMEOUT_S)
+            resp.raise_for_status()
+            payload = resp.json()
+            fmt = str(ev.get("road_closures_format") or "").lower()
+            if fmt == "511" or ("events" in payload and "data" not in payload):
+                raw_gdf = parse_511_events_json(
+                    payload, bbox_wgs84=buffered_wgs84_bbox, flood_only=True
+                )
+            else:
+                raw_gdf = parse_caltrans_lcs_json(
+                    payload, bbox_wgs84=buffered_wgs84_bbox, flood_only=True
+                )
+            if "event_id" in raw_gdf.columns and "record_id" not in raw_gdf.columns:
+                raw_gdf = raw_gdf.rename(columns={"event_id": "record_id"})
+            if "description" in raw_gdf.columns and "category" not in raw_gdf.columns:
+                raw_gdf = raw_gdf.rename(columns={"description": "category"})
+            gdf = merge_standardized_tier_c_records([raw_gdf], target_crs=project_crs)
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        gdf.to_file(out_path, driver="GPKG")
+        print(f"[00_fetch_data] Saved {len(gdf)} Tier C disruptions -> {out_path}")
+
+
+def _read_parquet_clipped(
+    source: str | Path, bbox_tuple: tuple[float, float, float, float]
+) -> gpd.GeoDataFrame:
+    """Read a GeoParquet file/URL and clip to (xmin, ymin, xmax, ymax) in WGS84."""
+    xmin, ymin, xmax, ymax = bbox_tuple
+    try:
+        return gpd.read_parquet(source, bbox=bbox_tuple)
+    except ValueError:
+        gdf = gpd.read_parquet(source)
+        if gdf.empty:
+            return gdf
+        return gdf.cx[xmin:xmax, ymin:ymax].copy()
+
+
+def _fetch_groundsource(
+    cfg: Mapping[str, Any],
+    buffered_wgs84_bbox: Sequence[float],
+    force: bool = False,
+) -> None:
+    """Fetch optional Tier D Groundsource GeoParquet clipped to the domain bbox."""
+    sources_cfg = cfg.get("validation", {}).get("sources") or {}
+    gs_raw = sources_cfg.get("groundsource_file")
+    if not gs_raw:
+        return
+    out_path = Path(gs_raw)
+    if out_path.exists() and not force:
+        print(f"[00_fetch_data] Cached Tier D Groundsource -> {out_path}")
+        return
+
+    url = str(sources_cfg.get("groundsource_url") or GROUNDSOURCE_PARQUET_URL)
+    bbox_tuple = tuple(float(v) for v in buffered_wgs84_bbox)
+
+    gdf: gpd.GeoDataFrame | None = None
+    try:
+        gdf = _read_parquet_clipped(url, bbox_tuple)
+    except Exception:
+        if not url.startswith(("http://", "https://")):
+            raise
+        gdf = None
+
+    if gdf is None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_parquet = Path(tmp_dir) / "groundsource_download.parquet"
+            with requests.get(url, stream=True, timeout=300) as resp:
+                resp.raise_for_status()
+                with tmp_parquet.open("wb") as fh:
+                    for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                        if chunk:
+                            fh.write(chunk)
+            gdf = _read_parquet_clipped(tmp_parquet, bbox_tuple)
+
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if out_path.suffix.lower() in {".parquet", ".geoparquet"}:
+        gdf.to_parquet(out_path)
+    else:
+        gdf.to_file(out_path, driver="GPKG")
+    print(f"[00_fetch_data] Saved {len(gdf)} Tier D Groundsource records -> {out_path}")
+
+
+def _fetch_nfip_claims(
+    cfg: Mapping[str, Any],
+    buffered_wgs84_bbox: Sequence[float],
+    project_crs: str,
+    force: bool = False,
+) -> None:
+    """Fetch optional Tier E OpenFEMA NFIP claims aggregated by census tract."""
+    sources_cfg = cfg.get("validation", {}).get("sources") or {}
+    nfip_raw = sources_cfg.get("nfip_claims_file")
+    if not nfip_raw:
+        return
+    out_path = Path(nfip_raw)
+    if out_path.exists() and not force:
+        print(f"[00_fetch_data] Cached Tier E NFIP claims -> {out_path}")
+        return
+
+    county_fips = sources_cfg.get("nfip_county_fips")
+    start_year = sources_cfg.get("nfip_start_year")
+    api_url = str(sources_cfg.get("nfip_claims_url") or OPENFEMA_NFIP_CLAIMS_URL)
+    filter_expr = (
+        f"countyCode eq '{str(county_fips).strip().zfill(5)}'"
+        if county_fips
+        else "state eq 'CA'"
+    )
+    tract_field = "censusTract" if "/v2/" in api_url else "censusGeoid"
+    select_fields = (
+        f"{tract_field},countyCode,yearOfLoss,"
+        "amountPaidOnBuildingClaim,amountPaidOnContentsClaim,"
+        "amountPaidOnIncreasedCostOfComplianceClaim"
+    )
+
+    all_records: list[dict[str, Any]] = []
+    page_size = 10000
+    skip = 0
+    while True:
+        resp = requests.get(
+            api_url,
+            params={
+                "$filter": filter_expr,
+                "$select": select_fields,
+                "$top": page_size,
+                "$skip": skip,
+            },
+            timeout=DEFAULT_HTTP_TIMEOUT_S,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        batch = payload.get("NfipClaims") or payload.get("FimaNfipClaims") or []
+        if not batch:
+            break
+        all_records.extend(batch)
+        if len(batch) < page_size:
+            break
+        skip += page_size
+
+    claims_df = parse_openfema_nfip_claims(
+        all_records,
+        county_fips=str(county_fips) if county_fips else None,
+        start_year=int(start_year) if start_year is not None else None,
+    )
+
+    tracts_raw = sources_cfg.get("census_tracts_file")
+    if tracts_raw and Path(tracts_raw).exists():
+        tracts_gdf = gpd.read_file(Path(tracts_raw))
+        if tracts_gdf.crs is None:
+            tracts_gdf = tracts_gdf.set_crs("EPSG:4326")
+    else:
+        xmin, ymin, xmax, ymax = [float(v) for v in buffered_wgs84_bbox]
+        tracts_resp = requests.get(
+            TIGERWEB_TRACTS_URL,
+            params={
+                "where": "1=1",
+                "geometry": f"{xmin},{ymin},{xmax},{ymax}",
+                "geometryType": "esriGeometryEnvelope",
+                "inSR": "4326",
+                "spatialRel": "esriSpatialRelIntersects",
+                "outFields": "GEOID,STATE,COUNTY,TRACT",
+                "outSR": "4326",
+                "f": "geojson",
+            },
+            timeout=DEFAULT_HTTP_TIMEOUT_S,
+        )
+        tracts_resp.raise_for_status()
+        tracts_gdf = gpd.GeoDataFrame.from_features(
+            tracts_resp.json().get("features") or [], crs="EPSG:4326"
+        )
+
+    joined_gdf = join_nfip_claims_to_tracts(
+        claims_df, tracts_gdf, target_crs=project_crs
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if out_path.suffix.lower() in {".parquet", ".geoparquet"}:
+        joined_gdf.to_parquet(out_path)
+    else:
+        joined_gdf.to_file(out_path, driver="GPKG")
+    print(
+        f"[00_fetch_data] Saved {len(joined_gdf)} Tier E NFIP tracts "
+        f"({int(joined_gdf['claim_count'].sum())} claims) -> {out_path}"
+    )
+
+
 def fetch_data(config_path: Path, force: bool = False) -> None:
     """Fetch all Phase 0 raw datasets and generate design-storm hyetographs."""
     with config_path.open("r", encoding="utf-8") as f:
@@ -1466,6 +2197,23 @@ def fetch_data(config_path: Path, force: bool = False) -> None:
     _fetch_ensemble_311(
         cfg=cfg,
         buffered_wgs84_bbox=buffered_wgs84_bbox,
+        force=force,
+    )
+    _fetch_ensemble_road_closures(
+        cfg=cfg,
+        buffered_wgs84_bbox=buffered_wgs84_bbox,
+        project_crs=project_crs,
+        force=force,
+    )
+    _fetch_groundsource(
+        cfg=cfg,
+        buffered_wgs84_bbox=buffered_wgs84_bbox,
+        force=force,
+    )
+    _fetch_nfip_claims(
+        cfg=cfg,
+        buffered_wgs84_bbox=buffered_wgs84_bbox,
+        project_crs=project_crs,
         force=force,
     )
     print("[00_fetch_data] Phase 0 fetch complete.")

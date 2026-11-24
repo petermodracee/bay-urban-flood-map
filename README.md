@@ -4,7 +4,7 @@ An open-source urban stormwater and compound sea level rise (SLR) flood model an
 
 **Live Viewer:** https://bay-urban-flood-map.pages.dev
 
-**Status:** `v0.4` SF literature-backed methodology upgrades & controlled ablation complete ([`docs/reports/sf_v02_vs_v04_ablation.md`](docs/reports/sf_v02_vs_v04_ablation.md)) — 4-gauge SF Bay tides, NOAA MRMS 1 km gridded QPE (`1,535` 311 points across 4 historical ARs), opt-in Tier 1a/1b/2 2D drainage (`netamprfile`), and opt-in `40 m → 10 m` quadtree refinement (`hydromt_sfincs 2.0.0`), alongside the live `v0.3` Cloudflare R2 + Pages viewer. Next up: `v0.5` 5-tier open validation layer (SF baseline), `v0.6` SF multi-tier calibration audit, and `v0.7` San Francisquito Creek / East Palo Alto separate-MS4 pilot.
+**Status:** `v0.5` 5-tier open multi-source validation baseline complete ([`docs/reports/sf_v05_multitier_validation.md`](docs/reports/sf_v05_multitier_validation.md)) — live SF baseline scored across Tiers A–E (NOAA Presidio tides `NSE = 1.0`, SFPUC 100-yr `CSI = 0.1998`, DataSF DEM/SFFD Tier C `260` pts, DataSF 311 `1,535` pts + Groundsource `37/37` sub-basins, OpenFEMA NFIP `259` tracts / `92` claims) on top of the frozen `v0.4` model ([`docs/reports/sf_v02_vs_v04_ablation.md`](docs/reports/sf_v02_vs_v04_ablation.md)) and live `v0.3` Cloudflare R2 + Pages viewer. Next up: `v0.6` SF multi-tier calibration audit and `v0.7` San Francisquito Creek / East Palo Alto separate-MS4 pilot.
 
 > **Note:** This is a screening-level 2D overland pooling and coastal-compound flood model grounded in peer-reviewed literature and gated by controlled A/B ablations (see [`docs/METHODS.md`](docs/METHODS.md) and [`docs/DECISIONS.md`](docs/DECISIONS.md)). It is not a 1D parcel-level storm-pipe capacity model or a regulatory FEMA flood map.
 
@@ -32,23 +32,24 @@ An open-source urban stormwater and compound sea level rise (SLR) flood model an
 │   ├── DECISIONS.md          # Architecture & calibration design rationale
 │   ├── WEB_SPEC.md           # MapLibre frontend & UI specification
 │   ├── reports/
-│   │   ├── sf_v02_validation.md      # v0.2 citywide SFPUC & 311 validation report
-│   │   └── sf_v02_vs_v04_ablation.md # v0.4 controlled ablation & MRMS ensemble report
+│   │   ├── sf_v02_validation.md           # v0.2 citywide SFPUC & 311 validation report
+│   │   ├── sf_v02_vs_v04_ablation.md      # v0.4 controlled ablation & MRMS ensemble report
+│   │   └── sf_v05_multitier_validation.md # v0.5 5-tier open validation baseline report
 │   └── plan/
 │       ├── ROADMAP.md        # Milestone index & future backlog
 │       ├── PLAN_V01.md       # v0.1 ~20 km² SF slice checklist (complete)
 │       ├── PLAN_V02.md       # v0.2 citywide SF compound SLR plan (complete)
 │       ├── PLAN_V03.md       # v0.3 static COG hosting & deployment plan (complete)
 │       ├── PLAN_V04.md       # v0.4 SF literature upgrades & ablation plan (complete)
-│       └── PLAN_V05.md       # v0.5 5-tier open validation layer (SF baseline)
+│       └── PLAN_V05.md       # v0.5 5-tier open validation layer (complete)
 ├── configs/
 │   ├── sf_citywide.yml       # Citywide SF (20 m / 2 m) + AR hindcast config
 │   └── sf_benchmark.yml      # v0.1 ~20 km² SF benchmark slice config
 ├── pipeline/
-│   ├── 00_fetch_data.py      # Fetch/cache DEM, NLCD, HSG, OSM, NOAA tides, & 311
+│   ├── 00_fetch_data.py      # Fetch/cache DEM, NLCD, HSG, OSM, NOAA tides, & Tier C/D/E sources
 │   ├── 01_prep_terrain.py    # Underpass carving, SFEI crests, roughness, & CN grids
 │   ├── 02_build_sfincs.py    # HydroMT-SFINCS builder & Docker solver runner
-│   ├── 03_validate_sf.py     # Dual SFPUC & 311 validation + report generator
+│   ├── 03_validate_sf.py     # 5-tier open multi-source validation (Tiers A–E) + report generator
 │   └── 04_export_cog.py      # Downscale, SLR deltas, GeoJSON, & EPSG:3857 COGs
 ├── web/                      # Vite + MapLibre GL + maplibre-cog-protocol viewer
 ├── data/                     # Local raw/processed/runs/web outputs (git-ignored)
@@ -102,4 +103,4 @@ Exported `EPSG:3857` COGs (e.g., `sf_citywide_100yr_slr0ft_depth_3857.tif`, `sf_
 ## License & Attribution
 
 - **Code:** Repository source code (`pipeline/`, `web/`, `configs/`, `deploy/`) is licensed under the **Apache License, Version 2.0** ([`LICENSE`](LICENSE)).
-- **Upstream & Derived Geospatial Data:** Input datasets and derived flood rasters remain subject to their respective upstream licenses and attribution terms in [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md), including **SFEI SF Bay Shore Inventory** (`GNU GPL v3.0`), **OpenStreetMap** (`ODbL 1.0`, © OpenStreetMap contributors), **Open-Meteo** (`CC BY 4.0`), **DataSF / SFPUC / SF 311** (`Open Data Commons PDDL`), **USGS 3DEP / NLCD**, **USDA NRCS SSURGO**, and **NOAA CO-OPS / Atlas 14 / MRMS** (Public Domain).
+- **Upstream & Derived Geospatial Data:** Input datasets and derived flood rasters remain subject to their respective upstream licenses and attribution terms in [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md), including **SFEI SF Bay Shore Inventory** (`GNU GPL v3.0`), **OpenStreetMap** (`ODbL 1.0`, © OpenStreetMap contributors), **Open-Meteo** & **Google Research Groundsource** (`CC BY 4.0`), **DataSF / SFPUC / SF 311 / SF DEM / SFFD** (`Open Data Commons PDDL`), **USGS 3DEP / NLCD**, **USDA NRCS SSURGO**, **OpenFEMA NFIP**, and **NOAA CO-OPS / Atlas 14 / MRMS** (Public Domain).
