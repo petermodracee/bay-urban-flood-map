@@ -315,6 +315,15 @@ terrain_prep:
   nodata_value: -9999.0
   shoreline_crest_half_width_m: 2.0
   shoreline_elevation_col: "Z_Mean"
+  # Reproducible Phase 2A terrain QA controls (never hand-edit .tifs)
+  # - Winston Dr / Stonestown Galleria (37.7270, -122.4775): covered mall deck / skybridge
+  # - Embarcadero / Howard St Muni Metro portal (37.7914, -122.3909): sunken rail portal retaining wall (verified; no cut)
+  # - Shoreline perimeter (~37.757, -122.509 Ocean Beach / Bayshore): 20m/30m stair-stepped water edge (tracked for export smoothing)
+  # - Cayuga Ave (37.7168, -122.4458): 20m zsmax downscale artifact on sloped street (grid resolution, not DEM)
+  carve_exclude_osm_ids:
+    - 35156816
+    - 35156817
+  manual_underpass_cuts: []
 
 sfincs_model:
   docker_image: "deltares/sfincs-cpu:latest"

@@ -12,7 +12,7 @@ import geopandas as gpd
 import numpy as np
 import rasterio
 import yaml
-from pyproj import CRS
+from pyproj import CRS, Transformer
 from rasterio.enums import Resampling
 from rasterio.features import rasterize
 from rasterio.transform import Affine, from_origin, rowcol, xy
@@ -133,11 +133,20 @@ def identify_crossing_corridors(
     roads_gdf_utm: gpd.GeoDataFrame,
     bridge_buffer_m: float,
     approach_sample_m: float,
+    exclude_osm_ids: Sequence[int | str] | None = None,
 ) -> list[tuple[LineString, Point, Point, str]]:
     """Identify surface-street corridors passing under freeway/rail bridges or through tunnels."""
     if roads_gdf_utm.empty:
         return []
     assert_crs_equals(roads_gdf_utm.crs, "EPSG:26910", "roads_gdf_utm")
+
+    if exclude_osm_ids and "osm_id" in roads_gdf_utm.columns:
+        excluded_set = {str(x).strip() for x in exclude_osm_ids if x is not None}
+        if excluded_set:
+            osm_series = roads_gdf_utm["osm_id"].astype(str).str.strip()
+            roads_gdf_utm = roads_gdf_utm[~osm_series.isin(excluded_set)]
+            if roads_gdf_utm.empty:
+                return []
 
     layer_str = roads_gdf_utm["layer"].fillna("").astype(str).str.strip()
     is_elevated = roads_gdf_utm["bridge"].notna() | layer_str.isin(ELEVATED_LAYERS)
@@ -200,6 +209,41 @@ def identify_crossing_corridors(
             )
             corridors.append((seg, start_pt, end_pt, "bridge_underpass"))
 
+    return corridors
+
+
+def build_manual_underpass_corridors(
+    manual_cuts_cfg: Sequence[dict[str, Any]] | None,
+    target_crs: str = "EPSG:26910",
+) -> list[tuple[LineString, Point, Point, str]]:
+    """Build explicit manual underpass cut corridors from config entries."""
+    if not manual_cuts_cfg:
+        return []
+    assert_crs_equals(target_crs, "EPSG:26910", "target_crs")
+    to_utm = Transformer.from_crs("EPSG:4326", target_crs, always_xy=True)
+    corridors: list[tuple[LineString, Point, Point, str]] = []
+    for idx, entry in enumerate(manual_cuts_cfg):
+        name = str(entry.get("name") or f"cut_{idx}")
+        if entry.get("coords_epsg26910"):
+            pts = [(float(p[0]), float(p[1])) for p in entry["coords_epsg26910"]]
+        elif entry.get("coords_lonlat"):
+            pts = [
+                to_utm.transform(float(p[0]), float(p[1]))
+                for p in entry["coords_lonlat"]
+            ]
+        else:
+            raise ValueError(
+                f"manual_underpass_cuts[{idx}] ('{name}') must specify "
+                "'coords_epsg26910' or 'coords_lonlat'"
+            )
+        if len(pts) < 2:
+            raise ValueError(
+                f"manual_underpass_cuts[{idx}] ('{name}') needs at least 2 points"
+            )
+        line = LineString(pts)
+        if line.length < 1.0:
+            continue
+        corridors.append((line, Point(pts[0]), Point(pts[-1]), f"manual:{name}"))
     return corridors
 
 
@@ -559,7 +603,7 @@ def _write_geotiff(
         "crs": crs,
         "transform": transform,
         "nodata": nodata_value,
-        "compress": "DEFLATE",
+        "compress": "LZW",
         "tiled": True,
         "blockxsize": 256,
         "blockysize": 256,
@@ -755,7 +799,13 @@ def prep_terrain(config_path: Path, force: bool = False) -> None:
         roads_gdf_utm=roads_utm,
         bridge_buffer_m=float(tprep.get("bridge_buffer_m", 12.0)),
         approach_sample_m=float(tprep.get("approach_sample_m", 10.0)),
+        exclude_osm_ids=tprep.get("carve_exclude_osm_ids"),
     )
+    manual_corridors = build_manual_underpass_corridors(
+        tprep.get("manual_underpass_cuts"),
+        target_crs=project_crs,
+    )
+    corridors.extend(manual_corridors)
     raw_max_bump = tprep.get("max_bump_m", 6.0)
     max_bump_m = float(raw_max_bump) if raw_max_bump is not None else None
     hydro_dem_m, burn_stats = burn_underpasses_into_dem(
