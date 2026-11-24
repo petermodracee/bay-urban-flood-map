@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>About &mdash; SF Bay Urban Flood Map (v0.6)</title>
+    <meta
+      name="description"
+      content="Plain-English guide to how the SF Bay Urban Flood Map models heavy rain, rising Bay tides, and street flooding in San Francisco using LiDAR and SFINCS."
+    />
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="canonical" href="https://bay-urban-flood-map.pages.dev/about.html" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="SF Bay Urban Flood Map" />
+    <meta property="og:title" content="About — SF Bay Urban Flood Map" />
+    <meta
+      property="og:description"
+      content="Plain-English guide to how the SF Bay Urban Flood Map models heavy rain, rising Bay tides, and street flooding in San Francisco."
+    />
+    <meta property="og:url" content="https://bay-urban-flood-map.pages.dev/about.html" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="About — SF Bay Urban Flood Map" />
+    <meta
+      name="twitter:description"
+      content="Plain-English guide to how the SF Bay Urban Flood Map models heavy rain, rising Bay tides, and street flooding in San Francisco."
+    />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebPage",
+            "name": "About the SF Bay Urban Flood Map",
+            "url": "https://bay-urban-flood-map.pages.dev/about.html",
+            "description": "Plain-English guide to how the SF Bay Urban Flood Map models heavy rain, rising Bay tides, and street flooding in San Francisco.",
+            "dateModified": "2026-11-24",
+            "isPartOf": {
+              "@type": "WebSite",
+              "name": "SF Bay Urban Flood Map",
+              "url": "https://bay-urban-flood-map.pages.dev/"
+            }
+          },
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              {
+                "@type": "ListItem",
+                "position": 1,
+                "name": "Flood Map",
+                "item": "https://bay-urban-flood-map.pages.dev/"
+              },
+              {
+                "@type": "ListItem",
+                "position": 2,
+                "name": "About",
+                "item": "https://bay-urban-flood-map.pages.dev/about.html"
+              }
+            ]
+          }
+        ]
+      }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,600&display=swap"
+    />
+    <link rel="stylesheet" href="/src/methodology.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand-link" href="./">SF Bay Urban Flood Map</a>
+        <nav class="header-nav" aria-label="Site navigation">
+          <a class="nav-link" href="./">&larr; Flood Map</a>
+          <a class="nav-link active" href="./about.html" aria-current="page">About</a>
+          <a class="nav-link" href="./methodology.html">Methodology</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page-layout">
+      <aside class="section-sidebar" aria-label="On this page">
+        <p class="sidebar-heading">On This Page</p>
+        <ul class="sidebar-nav">
+          <li><a href="#about">About</a></li>
+          <li>
+            <a href="#method">How It Is Made</a>
+            <ul class="sidebar-subnav">
+              <li><a href="#surface">Shaping the City Surface</a></li>
+              <li><a href="#rain-drains">Rain, Drains &amp; Tides</a></li>
+              <li><a href="#tuning">Checking &amp; Tuning</a></li>
+            </ul>
+          </li>
+          <li>
+            <a href="#output">Reading the Results</a>
+            <ul class="sidebar-subnav">
+              <li><a href="#validation">How Well v0.6 Matches</a></li>
+              <li><a href="#limits">What This Map Cannot Do</a></li>
+            </ul>
+          </li>
+        </ul>
+      </aside>
+
+      <article class="doc-panel">
+        <section class="doc-hero">
+          <h1>About the SF Bay Urban Flood Map</h1>
+          <p class="hero-lead">
+            A plain-English guide to how this map models heavy rain, rising Bay tides, and street flooding in San Francisco.
+          </p>
+        </section>
+
+        <section id="about" class="content-section">
+          <h2>About</h2>
+          <p>
+            <a href="https://msc.fema.gov/portal/home" target="_blank" rel="noopener noreferrer">FEMA flood maps</a> focus on creeks and the shoreline, while sea level rise (SLR) viewers show higher Bay water without rain. In San Francisco, heavy rain also floods low paved streets far from the water because asphalt cannot soak up rain like parks or soil. When Bay tides run high at the same time, gravity storm drains have a harder time emptying into the Bay.
+          </p>
+          <p>
+            This map models heavy rain and rising Bay tides together so low spots where water pools show up in one place, both today and with future sea level rise.
+          </p>
+
+          <div class="callout-warning">
+            <p>
+              <strong>Disclaimer:</strong> This is an experimental screening map for general information only. It is <strong>not</strong> an official FEMA floodplain map, does <strong>not</strong> model individual underground storm pipes, and <strong>must not be used for flood insurance, permits, engineering design, or emergency decisions</strong>.
+            </p>
+          </div>
+        </section>
+
+        <section id="method" class="content-section">
+          <h2>How It Is Made</h2>
+          <p>
+            Every flood layer is built from public datasets using methods from <a href="./methodology.html#sec-provenance">peer-reviewed flood research</a> and run through <a href="https://sfincs.readthedocs.io/" target="_blank" rel="noopener noreferrer">SFINCS</a>, an open flood model that tracks how water moves over streets and along coastlines.
+          </p>
+
+          <figure class="diagram-figure">
+            <svg
+              viewBox="0 0 760 304"
+              role="img"
+              aria-labelledby="workflow-svg-title workflow-svg-desc"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <title id="workflow-svg-title">Inputs, SFINCS model, and outputs workflow</title>
+              <desc id="workflow-svg-desc">
+                Four parallel inputs (Ground Surface, Soils and Land Cover, Rainfall and Drains, and Bay Tides and SLR) feed into the SFINCS Water Model, which produces Real-Storm Checks and the Interactive Flood Map.
+              </desc>
+              <defs>
+                <marker
+                  id="arrow-head"
+                  viewBox="0 0 10 10"
+                  refX="8"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 1 L 10 5 L 0 9 z" fill="#64748b" />
+                </marker>
+                <marker
+                  id="arrow-head-teal"
+                  viewBox="0 0 10 10"
+                  refX="8"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 1 L 10 5 L 0 9 z" fill="#0d9488" />
+                </marker>
+              </defs>
+
+              <!-- Column labels -->
+              <text x="4" y="14" fill="#64748b" font-size="10.5" font-weight="700" letter-spacing="0.06em">INPUTS</text>
+              <text x="278" y="14" fill="#64748b" font-size="10.5" font-weight="700" letter-spacing="0.06em">MODEL</text>
+              <text x="536" y="14" fill="#64748b" font-size="10.5" font-weight="700" letter-spacing="0.06em">OUTPUTS</text>
+
+              <!-- Input 1: Ground Surface -->
+              <rect x="4" y="24" width="220" height="60" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1" />
+              <rect x="4" y="24" width="220" height="3" fill="#0f172a" />
+              <text x="16" y="44" fill="#0f172a" font-size="12.5" font-weight="700">Ground Surface</text>
+              <text x="16" y="61" fill="#475569" font-size="11">USGS LiDAR, buildings, bridges,</text>
+              <text x="16" y="75" fill="#475569" font-size="11">and SFEI seawall heights</text>
+
+              <!-- Input 2: Soils & Land Cover -->
+              <rect x="4" y="94" width="220" height="60" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1" />
+              <rect x="4" y="94" width="220" height="3" fill="#0f172a" />
+              <text x="16" y="114" fill="#0f172a" font-size="12.5" font-weight="700">Soils &amp; Land Cover</text>
+              <text x="16" y="131" fill="#475569" font-size="11">USGS pavement/parks and</text>
+              <text x="16" y="145" fill="#475569" font-size="11">USDA soil soaking maps</text>
+
+              <!-- Input 3: Rainfall & Drains -->
+              <rect x="4" y="164" width="220" height="60" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1" />
+              <rect x="4" y="164" width="220" height="3" fill="#0f172a" />
+              <text x="16" y="184" fill="#0f172a" font-size="12.5" font-weight="700">Rainfall &amp; Drains</text>
+              <text x="16" y="201" fill="#475569" font-size="11">NOAA radar or 10-/100-yr rain</text>
+              <text x="16" y="215" fill="#475569" font-size="11">minus storm-drain removal</text>
+
+              <!-- Input 4: Bay Tides & SLR -->
+              <rect x="4" y="234" width="220" height="60" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1" />
+              <rect x="4" y="234" width="220" height="3" fill="#0f172a" />
+              <text x="16" y="254" fill="#0f172a" font-size="12.5" font-weight="700">Bay Tides &amp; Sea Level Rise</text>
+              <text x="16" y="271" fill="#475569" font-size="11">4 NOAA Bay tide gauges plus</text>
+              <text x="16" y="285" fill="#475569" font-size="11">+1, +3, and +5 ft SLR</text>
+
+              <!-- Connectors: 4 Inputs -> Model -->
+              <path d="M 224 54 H 250 V 264 H 224" fill="none" stroke="#64748b" stroke-width="1.5" />
+              <line x1="224" y1="124" x2="250" y2="124" stroke="#64748b" stroke-width="1.5" />
+              <line x1="224" y1="194" x2="250" y2="194" stroke="#64748b" stroke-width="1.5" />
+              <line x1="250" y1="159" x2="274" y2="159" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-head)" />
+
+              <!-- Center: SFINCS Water Model -->
+              <rect x="278" y="98" width="204" height="122" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1" />
+              <rect x="278" y="98" width="204" height="3" fill="#0284c7" />
+              <text x="290" y="122" fill="#0f172a" font-size="13" font-weight="700">SFINCS Water Model</text>
+              <text x="290" y="143" fill="#475569" font-size="11.5">Tracks water flowing</text>
+              <text x="290" y="160" fill="#475569" font-size="11.5">downhill and pooling in</text>
+              <text x="290" y="177" fill="#475569" font-size="11.5">low streets while high</text>
+              <text x="290" y="194" fill="#475569" font-size="11.5">tides push at the shore.</text>
+
+              <!-- Connectors: Model -> Outputs -->
+              <path d="M 482 159 H 508 V 104 H 532" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-head)" />
+              <path d="M 508 159 V 214 H 532" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-head)" />
+
+              <!-- Feedback loop: Real-Storm Checks -> Model -->
+              <path
+                d="M 646 60 V 38 H 380 V 94"
+                fill="none"
+                stroke="#0d9488"
+                stroke-width="1.5"
+                stroke-dasharray="4 3"
+                marker-end="url(#arrow-head-teal)"
+              />
+              <text x="513" y="32" text-anchor="middle" fill="#0f766e" font-size="10.5" font-weight="600">
+                refine terrain &amp; drain settings
+              </text>
+
+              <!-- Output 1: Real-Storm Checks -->
+              <rect x="536" y="60" width="220" height="88" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1" />
+              <rect x="536" y="60" width="220" height="3" fill="#0d9488" />
+              <text x="548" y="82" fill="#0f172a" font-size="13" font-weight="700">Real-Storm Checks</text>
+              <text x="548" y="102" fill="#475569" font-size="11.5">Scored on 5 real storms</text>
+              <text x="548" y="118" fill="#475569" font-size="11.5">against 311 calls, road</text>
+              <text x="548" y="134" fill="#475569" font-size="11.5">hazards, gauges, &amp; SFPUC.</text>
+
+              <!-- Output 2: Interactive Flood Map -->
+              <rect x="536" y="170" width="220" height="88" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1" />
+              <rect x="536" y="170" width="220" height="3" fill="#0284c7" />
+              <text x="548" y="192" fill="#0f172a" font-size="13" font-weight="700">Interactive Flood Map</text>
+              <text x="548" y="212" fill="#475569" font-size="11.5">Peak depths mapped onto</text>
+              <text x="548" y="228" fill="#475569" font-size="11.5">2 m streets, plus Added</text>
+              <text x="548" y="244" fill="#475569" font-size="11.5">SLR Delta map layers.</text>
+            </svg>
+            <figcaption>
+              How elevation, land cover, rain, and tide inputs flow through SFINCS into validation checks and web map layers (v0.6).
+            </figcaption>
+          </figure>
+
+          <h3 id="surface">Shaping the City Surface</h3>
+          <p>
+            The model starts with <a href="https://www.usgs.gov/3d-elevation-program" target="_blank" rel="noopener noreferrer">USGS laser height maps (3DEP)</a> of San Francisco and makes three fixes so water moves over streets the way it does in real life. <a href="https://data.sfgov.org/Geographic-Locations-and-Boundaries/Building-Footprints/ynuv-fyni" target="_blank" rel="noopener noreferrer">DataSF building footprints</a> are raised so water runs around buildings instead of pooling inside them. Highway overpasses from <a href="https://www.openstreetmap.org/" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> are cleared out so laser-scanned bridge decks do not act like fake dams. Along the shoreline, seawalls and levees are held at their true heights using the <a href="https://www.sfei.org/data/sf-bay-shore-inventory-gis-data" target="_blank" rel="noopener noreferrer">San Francisco Bay Shore Inventory</a> from the San Francisco Estuary Institute (SFEI) so Bay water cannot leak inland too early.
+          </p>
+
+          <h3 id="rain-drains">Rain, Storm Drains, and Rising Tides</h3>
+          <p>
+            Past storms use hourly <a href="https://www.nssl.noaa.gov/projects/mrms/" target="_blank" rel="noopener noreferrer">NOAA weather radar (MRMS)</a>, while future scenarios simulate 10-year and 100-year rainstorms from <a href="https://hdsc.nws.noaa.gov/pfds/" target="_blank" rel="noopener noreferrer">NOAA Atlas 14</a>. Parks and yards soak up part of the rain based on <a href="https://www.nrcs.usda.gov/resources/data-and-reports/soil-survey-geographic-database-ssurgo" target="_blank" rel="noopener noreferrer">USDA soil maps</a>.
+          </p>
+          <p>
+            Because no single public map covers every storm pipe across the Bay Area, the project includes four ways to represent storm drains:
+          </p>
+          <ul>
+            <li>A steady drain rate that takes away a flat 0.2 inches (5 mm) of rain per hour across land (used in San Francisco).</li>
+            <li>A paved-area drain model using <a href="https://www.mrlc.gov/" target="_blank" rel="noopener noreferrer">USGS land-cover maps</a> to remove more rain on dense streets and less in parks.</li>
+            <li>A tide-locked drain model that slows down shoreline drainage when high Bay tides push back against gravity pipes.</li>
+            <li>Local city drain and pump maps for future Bay Area towns that publish open pipe data.</li>
+          </ul>
+          <p>
+            The paved-area, tide-locked, and wet-soil options were all tested on past San Francisco storms. In San Francisco, pulling extra water out of paved low spots hid real street flooding, so the steady drain rate gave the best match. The other drain options remain ready for flatter East Bay and South Bay towns next.
+          </p>
+          <p>
+            At the shoreline, the model uses <a href="https://tidesandcurrents.noaa.gov/stationhome.html?id=9414290" target="_blank" rel="noopener noreferrer">NOAA tide gauges</a> and adds +1, +3, or +5 feet of sea level rise based on <a href="https://opc.ca.gov/2024/06/final-2024-sea-level-rise-guidance/" target="_blank" rel="noopener noreferrer">2024 California state guidance</a>.
+          </p>
+
+          <h3 id="tuning">Checking and Tuning the Model</h3>
+          <p>
+            Before final maps are published, the 3D surface is checked against past storms to catch terrain mistakes, such as a mall walkway mistakenly cut like a highway bridge. Drain and soil changes are then tested one at a time on real storms and kept only when they improve more than one check without making others worse. The finished settings are also tested on storms that were never used during setup.
+          </p>
+        </section>
+
+        <section id="output" class="content-section">
+          <h2>Reading the Results</h2>
+          <p>
+            Every colored spot shows the deepest water reached at any point during the storm, not how long the street stays flooded. Puddles shallower than 2 inches are hidden so normal wet pavement does not clutter the map.
+          </p>
+          <p>
+            <strong>Total Depth</strong> (blue) shows all standing water from rain and Bay tides together. Switching to <strong>Added SLR Delta</strong> (orange to red) subtracts today's storm so only the extra flooding caused by sea level rise appears, making it easier to spot low streets where higher tides block drainage even away from the shore.
+          </p>
+          <p>
+            Click any flooded area to check its modeled depth in inches and feet, or turn on the <strong>Validation Overlays</strong> in the map sidebar to compare the model directly against real 311 calls, emergency road calls, NOAA tide gauges, and the San Francisco Public Utilities Commission (SFPUC) 100-year flood map.
+          </p>
+
+          <h3 id="validation">How Well Does v0.6 Match Real San Francisco Storms?</h3>
+          <p>
+            The v0.6 map was tested against five real San Francisco storms, including a big November 2024 storm kept completely untouched during setup as a fair check:
+          </p>
+          <ul>
+            <li>Across the three heaviest storms, the map caught 54%&ndash;59% of real <a href="https://data.sfgov.org/City-Infrastructure/311-Cases/vw6y-z8j6" target="_blank" rel="noopener noreferrer">SF 311 flood calls</a> within 80 ft (25 m), and 70%&ndash;83% within 165 ft (50 m) across all four major storms.</li>
+            <li>On the untouched November 22, 2024 storm (536 calls), the map caught 57% of calls within 80 ft and beat random chance by nearly 4&times; on the exact spot.</li>
+            <li>Modeled Bay water heights matched the <a href="https://tidesandcurrents.noaa.gov/stationhome.html?id=9414290" target="_blank" rel="noopener noreferrer">Presidio NOAA tide gauge</a> within less than one-tenth of an inch.</li>
+            <li>The map matched all 37 San Francisco areas with <a href="https://doi.org/10.5281/zenodo.18647054" target="_blank" rel="noopener noreferrer">past news flood reports</a> and lined up with 46%&ndash;56% of emergency traffic hazard and water-rescue calls during big storms.</li>
+          </ul>
+
+          <h3 id="limits">What This Map Cannot Do</h3>
+          <ul>
+            <li>It does not map underground pipes, so it cannot predict a single clogged catch basin or a backed-up sewer line under one building.</li>
+            <li>It models Bay tides and storm surge, not large Pacific Ocean waves crashing onto Ocean Beach.</li>
+            <li>It is an experimental screening map only &mdash; <strong>never</strong> use it for official flood insurance, permits, engineering design, or emergency decisions.</li>
+          </ul>
+
+          <p>
+            For the governing equations, full v0.2&ndash;v0.6 test tables, and peer-reviewed citations, see the <a href="./methodology.html">Methodology</a> page.
+          </p>
+        </section>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <span>SF Bay Urban Flood Map &middot; v0.6 &middot; Apache-2.0</span>
+        <nav class="footer-links" aria-label="Footer navigation">
+          <a href="./">Flood Map</a>
+          <a href="./about.html">About</a>
+          <a href="./methodology.html">Methodology</a>
+          <a href="https://github.com/petermodracee/bay-urban-flood-map" target="_blank" rel="noopener noreferrer">GitHub</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>
