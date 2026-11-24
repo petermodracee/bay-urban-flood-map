@@ -45,6 +45,6 @@
 ---
 
 ## Exit Criteria
-- All 5 validation tiers (`Tier A`–`Tier E`) are implemented as pure, offline-tested functions (`pytest` passes).
-- Zero regression against frozen v0.4 SF metrics (`SFPUC CSI = 0.1998`; 4-AR MRMS `25 m` `ROC-AUC = 0.5888`).
-- `docs/reports/sf_v05_multitier_validation.md` is published and establishes the holdout-protected baseline for `v0.6` calibration.
+- [x] All 5 validation tiers (`Tier A`–`Tier E`) are implemented as pure, offline-tested functions (`pytest` passes: `74 passed`), and live-scored on `sf_citywide` (NOAA Presidio, SFPUC 100-Yr, DataSF DEM/SFFD Tier C, DataSF 311 + Zenodo Groundsource Tier D, OpenFEMA `v3/NfipClaims` Tier E).
+- [x] Zero regression against frozen v0.4 SF metrics (`SFPUC CSI = 0.1998`; 4-AR MRMS `25 m` `ROC-AUC = 0.5888`).
+- [x] `docs/reports/sf_v05_multitier_validation.md` is published and establishes the holdout-protected baseline (`ar_20240204` + `ar_20241122`) for `v0.6` calibration.
