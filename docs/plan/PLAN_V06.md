@@ -38,8 +38,14 @@ From [`docs/reports/sf_v05_multitier_validation.md`](../reports/sf_v05_multitier
 ---
 
 ## Phase 2A: Reproducible Terrain QA Fixes & Re-Baselining (`pipeline/01_prep_terrain.py` / `configs/sf_citywide.yml`)
-- [ ] Log Phase 1 3D visual QA findings (`lat, lon`, symptom) and v0.5 Tier C corridor/underpass misses into reproducible YAML controls in `configs/sf_citywide.yml` and `pipeline/01_prep_terrain.py` (`manual_underpass_cuts`, `carve_exclude_osm_ids`, `shoreline_crest_half_width_m`; never hand-edit `.tif`s).
-- [ ] Re-run `100yr_slr0ft` + the 4 baseline ARs (`ar_20211024`, `ar_20221231`, `ar_20230109`, `ar_20240204`) under unchanged v0.4 physics on the fixed terrain, recording the clean **Phase 2A terrain control** across Tiers A–E (confirming zero regression before Phase 2B).
+- [x] Log Phase 1 3D visual QA findings (`lat, lon`, symptom) and v0.5 Tier C corridor/underpass misses into reproducible YAML controls in `configs/sf_citywide.yml` and `pipeline/01_prep_terrain.py` (`manual_underpass_cuts`, `carve_exclude_osm_ids`, `shoreline_crest_half_width_m`; never hand-edit `.tif`s).
+- [x] Re-run `100yr_slr0ft` + the 4 baseline ARs (`ar_20211024`, `ar_20221231`, `ar_20230109`, `ar_20240204`) under unchanged v0.4 physics on the fixed terrain, recording the clean **Phase 2A terrain control** across Tiers A–E (confirming zero regression before Phase 2B).
+  - **Phase 2A Terrain Control (Zero Regression vs. v0.5):**
+    - **Tier A (`9414290`, 4 ARs):** `RMSE = 0.0013–0.0019 m`, `MAE = 0.0010–0.0015 m`, `NSE = 1.0`, `0.0 min` peak timing error.
+    - **Tier B (SFPUC 100-Yr):** `HR = 0.3901`, `FAR = 0.7188`, `CSI = 0.1953`.
+    - **Tier C (DEM + SFFD, 25 m):** `ar_20211024` `51.56% / 1.360x / 0.5733`; `ar_20221231` `56.06% / 1.568x / 0.6362`; `ar_20230109` `24.24% / 1.087x / 0.5171`; `ar_20240204` `1.03% / 0.543x / 0.4950`.
+    - **Tier D (311 + Groundsource):** 4-AR `25 m` mean `36.95%` cap / `1.251x` lift / `0.5888` AUC (`50 m`: `57.30%` / `1.077x` / `0.5796`); Groundsource `37/37` sub-basins matched (`1.000` HR, `0.9024` accuracy).
+    - **Tier E (NFIP, 259 tracts):** `claim_count` vs. `flooded_land_area_m2` $\rho = 0.2289$ ($p = 0.0002$); vs. `exposed_buildings` $\rho = 0.0956$ ($p = 0.1248$).
 
 ---
 
