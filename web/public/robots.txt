@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://bay-urban-flood-map.pages.dev/sitemap.xml

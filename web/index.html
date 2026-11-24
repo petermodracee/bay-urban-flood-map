@@ -3,7 +3,52 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SF Bay Urban Flood Map</title>
+    <title>SF Bay Urban Flood Map &mdash; Stormwater &amp; Sea Level Rise</title>
+    <meta
+      name="description"
+      content="Interactive open-source urban stormwater and compound sea level rise flood map for San Francisco, modeling heavy rain, Bay tides, and +1 to +5 ft SLR."
+    />
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="canonical" href="https://bay-urban-flood-map.pages.dev/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="SF Bay Urban Flood Map" />
+    <meta property="og:title" content="SF Bay Urban Flood Map — Stormwater & Sea Level Rise" />
+    <meta
+      property="og:description"
+      content="Interactive open-source urban stormwater and compound sea level rise flood map for San Francisco, modeling heavy rain, Bay tides, and +1 to +5 ft SLR."
+    />
+    <meta property="og:url" content="https://bay-urban-flood-map.pages.dev/" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="SF Bay Urban Flood Map — Stormwater & Sea Level Rise" />
+    <meta
+      name="twitter:description"
+      content="Interactive open-source urban stormwater and compound sea level rise flood map for San Francisco, modeling heavy rain, Bay tides, and +1 to +5 ft SLR."
+    />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "SF Bay Urban Flood Map",
+        "url": "https://bay-urban-flood-map.pages.dev/",
+        "description": "Interactive open-source urban stormwater and compound sea level rise flood screening map for San Francisco.",
+        "applicationCategory": "MapApplication",
+        "operatingSystem": "Web",
+        "isAccessibleForFree": true,
+        "license": "https://www.apache.org/licenses/LICENSE-2.0",
+        "softwareVersion": "0.6",
+        "spatialCoverage": {
+          "@type": "Place",
+          "name": "San Francisco, California"
+        }
+      }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,600&display=swap"
+    />
   </head>
   <body>
     <aside id="controls" aria-label="Flood map controls">
@@ -181,13 +226,22 @@
         Click any flooded cell to query depth.
       </p>
 
+      <nav class="methodology-links" aria-label="Documentation">
+        <a class="methodology-link-btn" href="./about.html">
+          About
+        </a>
+        <a class="methodology-link-btn" href="./methodology.html">
+          Methodology
+        </a>
+      </nav>
+
       <details class="credits-section">
         <summary>Data Sources &amp; Credits</summary>
         <ul class="credits-list">
           <li><strong>Terrain &amp; Soils:</strong> USGS 3DEP / Annual NLCD; USDA NRCS SSURGO</li>
           <li><strong>Shoreline &amp; Urban:</strong> SFEI SF Bay Shore Inventory (GNU GPL v3.0); &copy; OpenStreetMap contributors (ODbL 1.0); DataSF / SFPUC &amp; SF 311 (PDDL)</li>
-          <li><strong>Tides &amp; Rain:</strong> NOAA CO-OPS / Atlas 14; Weather data by Open-Meteo.com (CC BY 4.0)</li>
-          <li><strong>Engine &amp; Code:</strong> Deltares SFINCS; viewer &amp; pipeline code under Apache-2.0 (<a href="https://github.com/petermodracee/bay-urban-flood-map/blob/main/docs/DATA_SOURCES.md" target="_blank" rel="noopener noreferrer">Data Sources</a> &middot; <a href="https://github.com/petermodracee/bay-urban-flood-map/blob/main/docs/METHODS.md" target="_blank" rel="noopener noreferrer">Methods</a>)</li>
+          <li><strong>Tides &amp; Rain:</strong> NOAA CO-OPS / Atlas 14 / MRMS QPE; Weather data by Open-Meteo.com (CC BY 4.0)</li>
+          <li><strong>Engine &amp; Code:</strong> Deltares SFINCS; viewer &amp; pipeline code under Apache-2.0 (<a href="https://github.com/petermodracee/bay-urban-flood-map/blob/main/docs/DATA_SOURCES.md" target="_blank" rel="noopener noreferrer">Data Sources</a> &middot; <a href="./methodology.html">Methodology</a>)</li>
         </ul>
         <button id="reopen-disclaimer-btn" type="button" class="link-btn">View Disclaimer</button>
       </details>
@@ -219,11 +273,9 @@
         <div class="modal-actions">
           <a
             class="modal-link"
-            href="https://github.com/petermodracee/bay-urban-flood-map/blob/main/docs/METHODS.md"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="./about.html"
           >
-            Methodology &amp; Limitations
+            About &amp; Limitations
           </a>
           <button id="disclaimer-agree-btn" type="button" class="primary-btn">
             I Agree
