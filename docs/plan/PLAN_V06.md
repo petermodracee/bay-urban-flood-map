@@ -1,6 +1,25 @@
 # PLAN_V06.md — SF Multi-Tier Calibration, Validation Overlays & Public Publishing Release
 
-**Goal:** Build the upgraded `web/` viewer (including 3D Terrain toggle, shareable URL hash, historical AR selector, and validation overlays) first so a local **3D visual QA pass** can catch any artificial freeway dams, bad trench cuts, or shoreline notches *before* running the **v0.6** anti-overfitting calibration pass ([`docs/VALIDATION_SPEC.md`](../VALIDATION_SPEC.md) §3.4) and full 12-scenario SLR export. Finish by adding the Public Methodology page and publishing the upgraded SF dataset + viewer to Cloudflare R2 & Pages (`v0.6.0` Pre-release) before expanding to San Francisquito Creek in **v0.7**.
+**Goal:** Build the upgraded `web/` viewer (including 3D Terrain toggle, shareable URL hash, historical AR selector, and validation overlays) first so a local **3D visual QA pass** can catch any artificial freeway dams, bad trench cuts, or shoreline notches *before* running the **v0.6** terrain fixes (**Phase 2A**), anti-overfitting physics calibration (**Phase 2B**, [`docs/VALIDATION_SPEC.md`](../VALIDATION_SPEC.md) §3.4), and full 12-scenario SLR export (**Phase 3**). Finish by adding the Public Methodology page and publishing the upgraded SF dataset + viewer to Cloudflare R2 & Pages (`v0.6.0` Pre-release + Zenodo Code/Dataset DOIs) before expanding to San Francisquito Creek in **v0.7**.
+
+---
+
+## Frozen v0.5 Five-Tier Baseline & Holdout Split (`sf_citywide`)
+
+From [`docs/reports/sf_v05_multitier_validation.md`](../reports/sf_v05_multitier_validation.md) (frozen v0.4 physics: `20 m / 2 m`, Tier 0 `5.0 mm/hr`, 4-gauge Bay tides, NOAA MRMS 1 km QPE):
+
+| Tier | Baseline Dataset | Frozen v0.5 SF Baseline Score |
+| --- | --- | --- |
+| **Tier A** | NOAA CO-OPS `9414290` (Presidio, 4 ARs) | `RMSE = 0.0013–0.0019 m`, `MAE = 0.0010–0.0015 m`, `NSE = 1.0`, `0.0 min` peak timing error |
+| **Tier B** | SFPUC 100-Yr (`>= 0.1524 m`) | `HR = 0.3887 / 0.3900`, `FAR = 0.7086 / 0.7189`, `CSI = 0.1998` (v0.4) / `0.1953` (v0.5 snapshot) |
+| **Tier C** | SF DEM `TRAFFIC HAZARD` + SFFD `Water Rescue` (`260` pts) | 4-AR `25 m` mean `33.22%` cap / `1.140x` lift / `0.5554` AUC (**3-AR cal mean:** `43.95%` / `1.338x` / `0.5755`) |
+| **Tier D** | DataSF 311 (`1,535` pts) + Groundsource (`332` records) | 4-AR `25 m` mean `36.89%` cap / `1.249x` lift / `0.5886` AUC; Groundsource `37/37` sub-basins matched (`1.000` HR) |
+| **Tier E** | OpenFEMA NFIP (`259` tracts, `92` claims, `\$1.54M` paid) | `claim_count` vs. `flooded_land_area_m2` $\rho = 0.2289$ ($p = 0.0002$); vs. `exposed_buildings` $\rho = 0.1087$ ($p = 0.0807$) |
+
+### Frozen Holdout-Storm Split & Retention Gate
+- **Calibration Storms (3 ARs, `1,394` 311 pts):** `ar_20211024` (`567` pts), `ar_20221231` (`424` pts), `ar_20230109` (`403` pts).
+- **Untouched Holdout Set (2 ARs):** `ar_20240204` (`141` pts, **never tuned on**) + `ar_20241122` (Nov 22–23, 2024 AR, `8` Groundsource records, `25.897 km^2`).
+- **Retention Gate:** Retain a Phase 2B change only if it (a) holds neutral or improves on the untouched holdout set, (b) improves **at least two independent tiers** without regressing SFPUC `CSI` below `0.1998`, and (c) clears the parsimony threshold (`>= +0.01` `ROC-AUC` or `>= +0.005` `CSI`).
 
 ---
 
@@ -10,24 +29,29 @@
   - Replace hardcoded `"v0.2"` / `"Dec 31, 2022 (424)"` labels with live `manifest.json` metadata (`version`, `rain_source`, `drainage_tier`, dynamic report counts).
   - Add **shareable URL hash state** (`#storm=...&slr=...&metric=...&lat=...&lng=...&z=...`), **quick-jump hotspot chips** (Alemany, SOMA / Mission Bay, Bayview / Islais Creek, Sunset / Wawona), and a **bounded address/intersection search** (Nominatim/Photon) that flies to the location and queries depth.
 - [ ] Group historical storms (`Oct 24, 2021`, `Dec 31, 2022`, `Jan 9, 2023`) in the storm selector, auto-swapping matching 311 + Tier C road-closure overlays and disabling the SLR slider for observed-tide hindcasts.
-- [ ] Add crisp **Validation Overlay Toggles** in the control panel: Tier B (`SFPUC 100-Yr`), Tier D (`311 Flood Reports`), Tier C (`Caltrans / CHP Road Closures` with route/incident popups), and Tier A (`NOAA Tide Gauge` pin showing observed vs. modeled peak `NAVD88`). Keep coarse Groundsource polygons and tract-level NFIP out of the default street map.
-- [ ] Run a local **3D visual QA pass** on existing SF COGs and log any artificial freeway dams, bad trench cuts, or shoreline notches (with `lat, lon` / `#` URL and symptom) for Phase 2 remediation.
+- [ ] Add crisp **Validation Overlay Toggles** in the control panel: Tier B (`SFPUC 100-Yr`), Tier D (`311 Flood Reports`), Tier C (`SF DEM Traffic Hazards & SFFD Water Rescues` — pluggable for Caltrans PeMS/CHP once available), and Tier A (`NOAA Tide Gauge` pin showing observed vs. modeled peak `NAVD88`). Keep coarse Groundsource polygons and tract-level NFIP out of the default street map.
+- [ ] Run a local **3D visual QA pass** on existing SF COGs and log any artificial freeway dams, bad trench cuts, or shoreline notches (with `lat, lon` / `#` URL and symptom) for Phase 2A remediation.
 
 ---
 
-## Phase 2: Reproducible Terrain QA Fixes & Anti-Overfitting Calibration (`pipeline/01_prep_terrain.py` / `02_build_sfincs.py`)
-- [ ] Remediate Phase 1 3D QA findings reproducibly in `configs/sf_citywide.yml` and `pipeline/01_prep_terrain.py` (e.g., `manual_underpass_cuts`, `carve_exclude_osm_ids`, or `shoreline_crest_half_width_m`; never hand-edit `.tif`s).
-- [ ] Run one-factor-at-a-time ablations on `sf_citywide` enforcing all five [`docs/VALIDATION_SPEC.md`](../VALIDATION_SPEC.md) §3.4 guardrails (temporal holdout ARs, cross-tier consensus across `>= 2` tiers, physical parameter bounds, parsimony threshold `>= +0.01` `ROC-AUC` or `>= +0.005` `CSI`):
-  - Mean-rate-matched `Tier 1a/1b` 2D drainage vs. `Tier 0` (`5.0 mm/hr`).
-  - 5-day prior MRMS antecedent soil moisture (`AMC-II -> AMC-III`) for moderate ARs (e.g., `ar_20240204`).
-  - Tier C-surfaced bridge/underpass hydro-enforcement fixes.
-- [ ] Retain only changes that pass holdout + cross-tier consensus; freeze v0.6 SF defaults and publish `docs/reports/sf_v06_calibration_report.md`.
+## Phase 2A: Reproducible Terrain QA Fixes & Re-Baselining (`pipeline/01_prep_terrain.py` / `configs/sf_citywide.yml`)
+- [ ] Remediate Phase 1 3D visual QA findings and v0.5 Tier C corridor/underpass findings reproducibly in `configs/sf_citywide.yml` and `pipeline/01_prep_terrain.py` (e.g., `manual_underpass_cuts`, `carve_exclude_osm_ids`, or `shoreline_crest_half_width_m`; never hand-edit `.tif`s).
+- [ ] Re-run `100yr_slr0ft` + the 4 AR hindcasts under unchanged v0.4 physics to establish a clean Phase 2A terrain control with zero regression before Phase 2B physics calibration.
+
+---
+
+## Phase 2B: Anti-Overfitting Physics Calibration (`pipeline/02_build_sfincs.py`)
+- [ ] Fetch the second untouched holdout storm (`ar_20241122` — Nov 22–23, 2024 AR) via MRMS QPE, NOAA CO-OPS `9414290`–`9414523`, DataSF 311, and Tier C emergency dispatches.
+- [ ] Run one-factor-at-a-time ablations on top of Phase 2A terrain enforcing all [`docs/VALIDATION_SPEC.md`](../VALIDATION_SPEC.md) §3.4 guardrails:
+  - **Diagnostic #1 (Moderate-AR abstraction):** 5-day prior MRMS antecedent soil moisture (`AMC-II -> AMC-III`) targeting `ar_20240204` (`0.71%` capture / `0.5000` AUC in v0.5).
+  - **Diagnostic #2 (Spatial drainage):** Mean-rate-matched (`5.0 mm/hr` domain mean) `Tier 1a/1b` 2D drainage vs. `Tier 0`.
+- [ ] Score all 5 tiers (tracking both NFIP `flooded_land_area_m2` and `exposed_buildings` per v0.5 Tier E findings); retain only changes passing the retention gate, freeze v0.6 SF defaults, and publish `docs/reports/sf_v06_calibration_report.md`.
 
 ---
 
 ## Phase 3: Final Full-Matrix Export & Data Contracts (`pipeline/04_export_cog.py`)
-- [ ] Confirm and update [`docs/DATA_CONTRACTS.md`](../DATA_CONTRACTS.md) with event-matched validation overlay GeoJSONs (`< 2 MB`, `EPSG:4326`: per-storm 311 points, Tier C Caltrans/CHP road closures, Tier A NOAA/USGS gauge pins with observed vs. modeled peak `NAVD88`) and `manifest.json` `"version": "0.6"`.
-- [ ] Run the full `10-yr` / `100-yr` × `+0/+1/+3/+5 ft` SLR matrix + derived deltas and well-validated historical AR hindcasts (`ar_20211024` Bomb Cyclone, `ar_20221231` NYE AR, `ar_20230109` AR; include `ar_20240204` only if Phase 2 improves its skill) once on the QA'd terrain & calibrated defaults, and export `EPSG:3857` COGs verified via `gdalinfo`.
+- [ ] Confirm and update [`docs/DATA_CONTRACTS.md`](../DATA_CONTRACTS.md) with event-matched validation overlay GeoJSONs (`< 2 MB`, `EPSG:4326`: per-storm 311 points, Tier C road-closure points, Tier A NOAA/USGS gauge pins with observed vs. modeled peak `NAVD88`) and `manifest.json` `"version": "0.6"`.
+- [ ] Run the full `10-yr` / `100-yr` × `+0/+1/+3/+5 ft` SLR matrix + derived deltas and well-validated historical AR hindcasts (`ar_20211024` Bomb Cyclone, `ar_20221231` NYE AR, `ar_20230109` AR; include `ar_20240204` / `ar_20241122` only if Phase 2B validates them) once on the QA'd terrain & calibrated defaults, and export `EPSG:3857` COGs verified via `gdalinfo`.
 
 ---
 
@@ -42,7 +66,7 @@
 ---
 
 ## Exit Criteria
-- Local 3D visual QA pass completed and any terrain artifacts fixed reproducibly in `configs/` + `01_prep_terrain.py`.
-- Anti-overfitting guardrails verified in `docs/reports/sf_v06_calibration_report.md`.
+- Local 3D visual QA pass completed and Phase 2A terrain fixes verified with zero regression before Phase 2B calibration.
+- Anti-overfitting guardrails and frozen v0.5 holdout split verified in `docs/reports/sf_v06_calibration_report.md`.
 - `pytest`, `gdalinfo`, and `web/` (`node --test`, `npm run lint`, `npm run build`) all pass.
-- Upgraded SF COGs, historical AR hindcasts, validation overlays, and public methodology are live on Cloudflare R2/Pages and tagged `v0.6.0` (`--prerelease`).
+- Upgraded SF COGs, historical AR hindcasts, validation overlays, and public methodology are live on Cloudflare R2/Pages, tagged `v0.6.0` (`--prerelease`), and archived with Zenodo Code + `CC BY 4.0` Dataset DOIs.
