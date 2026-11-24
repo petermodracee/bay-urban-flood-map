@@ -28,9 +28,11 @@ Every flood raster exported by `04_export_cog.py` for the web frontend must meet
 
 ## 3. Vector Overlay Contract
 
-- **Format:** Static `PMTiles` (`.pmtiles`) in `EPSG:4326` (WGS84) for regional overlays, or lightweight GeoJSON (`< 2 MB`) for SF benchmark polygons and 311 flood reports.
-- **Required Benchmark Layer (v0.1+):** `sf_sfpuc_100yr_benchmark.geojson` (simplified to 1m tolerance if needed for browser performance).
-- **Optional Historical Point Overlay (v0.2+):** `sf_311_20221231_floods.geojson` (`EPSG:4326` points with `service_request_id`, `requested_datetime`, `service_subtype`, `service_details`, `address`, `neighborhood`).
+- **Format:** Static `PMTiles` (`.pmtiles`) in `EPSG:4326` (WGS84) for regional overlays, or lightweight GeoJSON (`< 2 MB`) for SF benchmark polygons and event-matched validation overlays.
+- **Required Benchmark Layer (Tier B, v0.1+):** `sf_sfpuc_100yr_benchmark.geojson` (simplified to 1m tolerance if needed for browser performance).
+- **Per-Storm 311 Flood Reports (Tier D, v0.2+ / v0.6+):** `sf_311_{YYYYMMDD}_floods.geojson` (`EPSG:4326` points with `service_request_id`, `requested_datetime`, `service_subtype`, `service_details`, `address`, `neighborhood`, and `storm_id`; `sf_311_20221231_floods.geojson` is retained for backwards compatibility).
+- **Per-Storm Roadway Closures & Emergency Dispatches (Tier C, v0.6+):** `sf_tier_c_{YYYYMMDD}_closures.geojson` (`EPSG:4326` points with `incident_id`, `source`, `incident_type`, `requested_datetime`, `address`, and `storm_id`).
+- **Coastal / Stream Gauge Peak WSE Pins (Tier A, v0.6+):** `sf_tier_a_gauges.geojson` (`EPSG:4326` points with `station_id`, `name`, `provider`, `storm_id`, `observed_peak_navd88_m`, `modeled_peak_navd88_m`, `bias_m`, `peak_timing_error_min`, and `datum` = `"NAVD88"`).
 
 ## 4. Validation Summary Contract (`validation_summary.json`)
 
@@ -72,6 +74,47 @@ The web frontend reads this file to populate dropdowns and resolve COG URLs with
 
 - **v0.2+ Extensions:** Historical hindcasts use string storm IDs (e.g., `"storm": "ar_20221231"`), derived SLR delta rasters use `"metric": "delta"`, and entries may include optional `"opc_2024_pathway"` and `"opc_2024_horizon"` metadata strings for UI display.
 - **v0.4+ Extensions:** Top-level manifest payload may include `"drainage_tier"` (`"tier0"`, `"tier1a"`, `"tier1b"`, or `"tier2"`) indicating the active storm-drain abstraction tier.
+- **v0.6+ Extensions:**
+  - Top-level `"version": "0.6"` and `"rain_source"` (e.g., `"mrms"` or `"open_meteo_archive"`).
+  - Top-level `"overlays"` object for discovering validation GeoJSONs and dynamic feature counts without hardcoding filenames:
+    ```json
+    "overlays": {
+      "tier_b_benchmark": {
+        "url": "/data/sf_sfpuc_100yr_benchmark.geojson",
+        "label": "SFPUC 100-Yr Flood Risk"
+      },
+      "tier_a_gauges": {
+        "url": "/data/sf_tier_a_gauges.geojson",
+        "label": "NOAA Tide Gauges (NAVD88)"
+      },
+      "tier_e_nfip": {
+        "url": "/data/sf_tier_e_nfip_tracts.geojson",
+        "label": "FEMA NFIP Claims (Census Tracts)",
+        "count": 44
+      },
+      "topo_contours": {
+        "url": "/data/sf_topo_contours.geojson",
+        "label": "10 m Topographic Contours (NAVD88)",
+        "count": 1266
+      },
+      "dem_cog": {
+        "url": "/data/sf_hydro_dem_3857.tif",
+        "label": "Hydro-Enforced LiDAR DEM (NAVD88)"
+      },
+      "tier_c_by_storm": {
+        "ar_20221231": {
+          "url": "/data/sf_tier_c_20221231_closures.geojson",
+          "count": 135
+        }
+      },
+      "tier_d_by_storm": {
+        "ar_20221231": {
+          "url": "/data/sf_311_20221231_floods.geojson",
+          "count": 424
+        }
+      }
+    }
+    ```
 
 ## 6. Multi-Tier Ensemble Validation Contract (`validation_ensemble_metrics.json`)
 
