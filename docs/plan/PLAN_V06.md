@@ -36,6 +36,7 @@
 - [ ] Verify `web/` with `cd web && node --test src/*.test.js && npm run lint && npm run build`.
 - [ ] Upload refreshed `data/web_outputs/` (`*.tif` COGs, GeoJSON overlays, `manifest.json`) to Cloudflare R2 and verify live HTTP `Range` / CORS streaming on `https://bay-urban-flood-map.pages.dev`.
 - [ ] Add `CITATION.cff` to the repo root, enable the GitHub → Zenodo integration before cutting `v0.6.0`, and badge the minted concept DOI in `README.md`.
+- [ ] Publish a companion **Zenodo Dataset** (`CC BY 4.0`) containing only the final derived outputs (`data/web_outputs/*.tif` COGs, `manifest.json`, `validation_*.json`, and an `ATTRIBUTION.md` mirroring [`docs/DATA_SOURCES.md`](../DATA_SOURCES.md) — no raw SFEI or OSM vectors) and link both Code and Dataset DOIs in `README.md`.
 - [ ] Cut `v0.6.0` (`--prerelease`) GitHub Release on `main` linking `docs/plan/PLAN_V06.md` and `docs/reports/sf_v06_calibration_report.md` (triggering the first permanent Zenodo DOI).
 
 ---
