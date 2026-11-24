@@ -6,13 +6,11 @@
     <title>SF Bay Urban Flood Map</title>
   </head>
   <body>
-    <div id="map"></div>
-
     <aside id="controls" aria-label="Flood map controls">
       <header class="panel-header">
         <div class="panel-title-group">
           <h1>SF Bay Urban Flood Map</h1>
-          <p class="subtitle">v0.2 San Francisco Citywide (2 m Subgrid SFINCS)</p>
+          <p id="panel-subtitle" class="subtitle">Loading model metadata…</p>
         </div>
         <button
           id="panel-toggle-btn"
@@ -27,6 +25,22 @@
       </header>
 
       <div id="panel-body" class="panel-body">
+
+      <form id="search-form" class="search-form" autocomplete="off">
+        <input
+          id="search-input"
+          type="search"
+          placeholder="Search SF address or intersection…"
+          aria-label="Search San Francisco address or intersection"
+        />
+        <button id="search-btn" type="submit">Go</button>
+      </form>
+      <ul id="search-results" class="search-results" hidden></ul>
+
+      <div class="control-group">
+        <span class="control-label">Quick-Jump Hotspots</span>
+        <div id="hotspot-chips" class="hotspot-chips"></div>
+      </div>
 
       <div class="control-group">
         <label for="storm-select">Storm Event</label>
@@ -80,20 +94,88 @@
         />
       </div>
 
-      <label class="checkbox-row" for="benchmark-toggle">
-        <input id="benchmark-toggle" type="checkbox" />
-        <span>SFPUC 100-Yr Flood Risk overlay</span>
-      </label>
-
-      <label class="checkbox-row checkbox-311" for="floods-311-toggle">
-        <input id="floods-311-toggle" type="checkbox" />
-        <span>Dec 31, 2022 311 Flood Reports (424)</span>
-      </label>
-
       <section class="legend-section" aria-label="Flood depth legend">
         <h2 id="legend-title">Max Flood Depth</h2>
         <ul id="legend-list"></ul>
       </section>
+
+      <label class="checkbox-row" for="elevated-bridges-toggle">
+        <input id="elevated-bridges-toggle" type="checkbox" />
+        <span>Highways &amp; Elevated Bridges</span>
+      </label>
+      <div id="highway-legend" class="highway-legend" hidden>
+        <ul id="highway-legend-list">
+          <li class="legend-item">
+            <span class="legend-line-swatch swatch-motorway-bridge" aria-hidden="true"></span>
+            <span>Elevated motorway bridge</span>
+          </li>
+          <li class="legend-item">
+            <span class="legend-line-swatch swatch-trunk-bridge" aria-hidden="true"></span>
+            <span>Elevated trunk bridge</span>
+          </li>
+          <li class="legend-item">
+            <span class="legend-line-swatch swatch-arterial-bridge" aria-hidden="true"></span>
+            <span>Elevated arterial bridge</span>
+          </li>
+          <li class="legend-item">
+            <span class="legend-line-swatch swatch-surface-highway" aria-hidden="true"></span>
+            <span>At-grade highway / arterial</span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="control-group">
+        <span class="control-label">Validation Overlays</span>
+        <label class="checkbox-row" for="benchmark-toggle">
+          <input id="benchmark-toggle" type="checkbox" />
+          <span class="overlay-swatch swatch-sfpuc" aria-hidden="true"></span>
+          <span>SFPUC 100-Yr Flood Risk</span>
+        </label>
+
+        <label class="checkbox-row checkbox-311" for="floods-311-toggle">
+          <input id="floods-311-toggle" type="checkbox" />
+          <span class="overlay-dot swatch-311" aria-hidden="true"></span>
+          <span id="floods-311-label">311 Flood Reports</span>
+        </label>
+
+        <label class="checkbox-row checkbox-tier-c" for="tier-c-toggle">
+          <input id="tier-c-toggle" type="checkbox" />
+          <span class="overlay-dot swatch-traffic" aria-hidden="true"></span>
+          <span id="tier-c-label">Traffic Hazards &amp; Rescues</span>
+        </label>
+
+        <label class="checkbox-row checkbox-tier-a" for="tier-a-toggle">
+          <input id="tier-a-toggle" type="checkbox" />
+          <span class="overlay-dot swatch-gauge" aria-hidden="true"></span>
+          <span id="tier-a-label">NOAA Tide Gauge (NAVD88)</span>
+        </label>
+
+        <label class="checkbox-row checkbox-tier-e" for="tier-e-toggle">
+          <input id="tier-e-toggle" type="checkbox" />
+          <span class="overlay-swatch swatch-nfip" aria-hidden="true"></span>
+          <span id="tier-e-label">FEMA NFIP Claims (Tracts)</span>
+        </label>
+        <div id="nfip-legend" class="highway-legend" hidden>
+          <ul id="nfip-legend-list">
+            <li class="legend-item">
+              <span class="legend-swatch swatch-nfip-1" aria-hidden="true"></span>
+              <span>1 claim</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-swatch swatch-nfip-3" aria-hidden="true"></span>
+              <span>3 claims</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-swatch swatch-nfip-6" aria-hidden="true"></span>
+              <span>6 claims</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-swatch swatch-nfip-10" aria-hidden="true"></span>
+              <span>10+ claims</span>
+            </li>
+          </ul>
+        </div>
+      </div>
 
       <p id="status-text" class="status-text">
         Click any flooded cell to query depth.
@@ -111,6 +193,8 @@
       </details>
       </div>
     </aside>
+
+    <div id="map"></div>
 
     <div
       id="disclaimer-modal"
