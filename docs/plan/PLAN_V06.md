@@ -50,12 +50,12 @@ From [`docs/reports/sf_v05_multitier_validation.md`](../reports/sf_v05_multitier
 ---
 
 ## Phase 2B: Anti-Overfitting Physics Calibration (`pipeline/02_build_sfincs.py`)
-- [ ] Fetch the second untouched holdout storm (`ar_20241122` — Nov 22–23, 2024 AR) via MRMS QPE, NOAA CO-OPS `9414290`–`9414523`, DataSF 311, and Tier C emergency dispatches.
-- [ ] Run **one-factor-at-a-time** ablations on top of the Phase 2A terrain control, evaluating the **3 calibration ARs + `100yr_slr0ft` first**:
+- [x] Fetch the second untouched holdout storm (`ar_20241122` — Nov 22–23, 2024 AR) via MRMS QPE, NOAA CO-OPS `9414290`–`9414523`, DataSF 311, and Tier C emergency dispatches.
+- [x] Run **one-factor-at-a-time** ablations on top of the Phase 2A terrain control, evaluating the **3 calibration ARs + `100yr_slr0ft` first**:
   - **Candidate 1 — Antecedent Soil Moisture (`AMC-II -> AMC-III`, Diagnostic #1):** Fetch 5-day prior MRMS rainfall before each storm start; when 5-day prior rainfall exceeds the standard USDA NRCS dormant-season wet threshold (`> 28 mm`), apply $\text{CN}_{\text{III}} = \frac{23\,\text{CN}_{\text{II}}}{10 + 0.13\,\text{CN}_{\text{II}}}$ (NEH-630) while keeping `Tier 0` `5.0 mm/hr` unchanged.
   - **Candidate 2 — Mean-Rate-Matched `Tier 1a/1b` 2D Drainage (Diagnostic #2):** Scale 2D urban drainage by NLCD imperviousness (and optional `(DEM - tide)` attenuation for `Tier 1b`) while normalizing the domain-mean urban land abstraction rate to exactly `5.0 mm/hr` (fixing v0.4 Phase 2's `~8–9 mm/hr` over-abstraction).
-- [ ] **Holdout & Retention Gate:** Evaluate only candidates that pass the 3-AR calibration gate (`>= 2` tiers improved, SFPUC `CSI >= 0.1998`, parsimony `>= +0.01` `ROC-AUC` or `>= +0.005` `CSI`) **once** on the untouched 2-AR holdout set (`ar_20240204` + `ar_20241122`). If both candidates pass individually, test their combination once; if neither clears the gate, retain Phase 2A terrain fixes + v0.4 physics as the frozen v0.6 defaults.
-- [ ] Score all 5 tiers (tracking both NFIP `flooded_land_area_m2` and `exposed_buildings` per v0.5 Tier E findings); freeze winning v0.6 SF defaults and publish `docs/reports/sf_v06_calibration_report.md`.
+- [x] **Holdout & Retention Gate:** Evaluate only candidates that pass the 3-AR calibration gate (`>= 2` tiers improved, SFPUC `CSI >= 0.1998`, parsimony `>= +0.01` `ROC-AUC` or `>= +0.005` `CSI`) **once** on the untouched 2-AR holdout set (`ar_20240204` + `ar_20241122`). If both candidates pass individually, test their combination once; if neither clears the gate, retain Phase 2A terrain fixes + v0.4 physics as the frozen v0.6 defaults.
+- [x] Score all 5 tiers (tracking both NFIP `flooded_land_area_m2` and `exposed_buildings` per v0.5 Tier E findings); freeze winning v0.6 SF defaults and publish `docs/reports/sf_v06_calibration_report.md`.
 
 ---
 

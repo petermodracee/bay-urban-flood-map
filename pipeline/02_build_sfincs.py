@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import math
 import subprocess
 from collections.abc import Mapping, Sequence
@@ -349,6 +350,59 @@ def compute_tier1a_drainage_rate_grid(
         0.0,
     )
     return rate_mm_hr.astype(np.float32)
+
+
+def normalize_tier1a_mean_rate(
+    drainage_1a_mm_hr: np.ndarray,
+    landcover: np.ndarray,
+    impervious_pct: np.ndarray,
+    target_mean_mm_hr: float = 5.0,
+) -> np.ndarray:
+    """Normalize Tier 1a 2D drainage so the domain-mean urban land rate equals target_mean_mm_hr."""
+    if target_mean_mm_hr < 0.0:
+        raise ValueError(
+            f"target_mean_mm_hr must be non-negative, got {target_mean_mm_hr}"
+        )
+    valid_imp = (impervious_pct >= 0.0) & (impervious_pct <= 100.0)
+    f_imp = np.clip(np.where(valid_imp, impervious_pct / 100.0, 0.0), 0.0, 1.0)
+    is_water = landcover == 11
+    urban_mask = (~is_water) & ((f_imp > 0.0) | np.isin(landcover, [21, 22, 23, 24]))
+    if not np.any(urban_mask):
+        return drainage_1a_mm_hr.astype(np.float32)
+    current_mean = float(np.mean(drainage_1a_mm_hr[urban_mask]))
+    if current_mean <= 0.0:
+        return drainage_1a_mm_hr.astype(np.float32)
+    scale = float(target_mean_mm_hr) / current_mean
+    matched = np.where(urban_mask, drainage_1a_mm_hr * scale, 0.0)
+    return matched.astype(np.float32)
+
+
+def apply_amc_iii_curve_number(
+    cn_ii: np.ndarray,
+    nodata_value: float = -9999.0,
+) -> np.ndarray:
+    """Convert AMC-II Curve Number to AMC-III using USDA NRCS NEH-630."""
+    cn_arr = np.asarray(cn_ii, dtype=np.float32)
+    valid = np.isfinite(cn_arr) & (cn_arr != nodata_value) & (cn_arr > 0.0)
+    cn_iii = np.where(
+        valid,
+        (23.0 * cn_arr) / (10.0 + 0.13 * cn_arr),
+        nodata_value,
+    )
+    cn_iii = np.where(valid, np.clip(cn_iii, 0.0, 100.0), nodata_value)
+    return cn_iii.astype(np.float32)
+
+
+def select_amc_condition(
+    antecedent_5day_mm: float | None,
+    threshold_mm: float = 28.0,
+) -> str:
+    """Select USDA NRCS antecedent moisture condition ('AMC-II' or 'AMC-III')."""
+    if antecedent_5day_mm is not None and float(antecedent_5day_mm) > float(
+        threshold_mm
+    ):
+        return "AMC-III"
+    return "AMC-II"
 
 
 def compute_tier1b_effective_drainage(
@@ -736,6 +790,9 @@ def _build_and_run_single_scenario(
     drainage_tier_override: str | None = None,
     quadtree_override: bool | None = None,
     rain_source_override: str | None = None,
+    amc_mode_override: str | None = None,
+    mean_rate_matched_override: bool | None = None,
+    runs_dir_override: Path | None = None,
 ) -> None:
     scenario_id = str(scenario["id"])
     rain_key = str(scenario["rain"])
@@ -745,7 +802,11 @@ def _build_and_run_single_scenario(
     domain = cfg["domain"]
     tprep = cfg["terrain_prep"]
     sfincs_cfg = cfg["sfincs_model"]
-    runs_dir = Path(cfg["paths"]["runs_dir"])
+    runs_dir = (
+        Path(runs_dir_override)
+        if runs_dir_override is not None
+        else Path(cfg["paths"]["runs_dir"])
+    )
     run_dir = runs_dir / scenario_id
     map_nc_path = run_dir / "sfincs_map.nc"
 
@@ -811,10 +872,49 @@ def _build_and_run_single_scenario(
     )
 
     run_dir.mkdir(parents=True, exist_ok=True)
+
+    amc_mode = str(
+        amc_mode_override or sfincs_cfg.get("antecedent_moisture_mode", "amc2")
+    ).lower()
+    if amc_mode not in {"amc2", "auto", "amc3"}:
+        raise ValueError(f"Unsupported antecedent_moisture_mode: {amc_mode}")
+    effective_amc = "AMC-II"
+    if amc_mode == "amc3":
+        effective_amc = "AMC-III"
+    elif amc_mode == "auto":
+        antecedent_file = sfincs_cfg.get("antecedent_5day_file")
+        threshold_mm = float(sfincs_cfg.get("antecedent_amc3_threshold_mm", 28.0))
+        antecedent_mm: float | None = None
+        if antecedent_file and Path(str(antecedent_file)).exists():
+            antecedent_data = json.loads(
+                Path(str(antecedent_file)).read_text(encoding="utf-8")
+            )
+            if rain_key in antecedent_data:
+                antecedent_mm = float(antecedent_data[rain_key]["mean_5day_mm"])
+        effective_amc = select_amc_condition(antecedent_mm, threshold_mm=threshold_mm)
+
+    effective_cn_path = curve_number_path
+    if effective_amc == "AMC-III":
+        amc3_cn_path = run_dir / "curve_number_amc3.tif"
+        with rasterio.open(curve_number_path) as cn_ds:
+            cn_profile = cn_ds.profile.copy()
+            cn_nodata = float(cn_ds.nodata) if cn_ds.nodata is not None else -9999.0
+            cn_ii = cn_ds.read(1)
+        cn_iii = apply_amc_iii_curve_number(cn_ii, nodata_value=cn_nodata)
+        cn_profile.update(dtype="float32", nodata=cn_nodata)
+        with rasterio.open(amc3_cn_path, "w", **cn_profile) as out_cn:
+            out_cn.write(cn_iii, 1)
+        effective_cn_path = amc3_cn_path
+
+    mean_rate_matched = (
+        bool(mean_rate_matched_override)
+        if mean_rate_matched_override is not None
+        else bool(sfincs_cfg.get("tier1_mean_rate_matched", False))
+    )
     drainage_label = (
         f"tier0={drainage_rate_mm_hr:.1f} mm/hr"
         if drainage_tier == "tier0"
-        else f"{drainage_tier} (netamprfile)"
+        else f"{drainage_tier} ({'rate-matched ' if mean_rate_matched else ''}netamprfile)"
     )
     if quadtree_enabled:
         base_res_m = float(quadtree_cfg.get("base_resolution_m", 40.0))
@@ -908,7 +1008,7 @@ def _build_and_run_single_scenario(
             write_dep_tif=False,
         )
         sf.quadtree_infiltration.create_cn(
-            cn=curve_number_path.resolve(),
+            cn=effective_cn_path.resolve(),
             antecedent_moisture=None,
             reproj_method=str(sfincs_cfg.get("cn_reproj_method", "med")),
         )
@@ -974,7 +1074,7 @@ def _build_and_run_single_scenario(
             max_gradient=float(sfincs_cfg.get("subgrid_max_gradient", 5.0)),
         )
         sf.infiltration.create_cn(
-            cn=curve_number_path.resolve(),
+            cn=effective_cn_path.resolve(),
             antecedent_moisture=None,
             reproj_method=str(sfincs_cfg.get("cn_reproj_method", "med")),
         )
@@ -1019,14 +1119,58 @@ def _build_and_run_single_scenario(
             mrms_da = mrms_ds["precip_mm_hr"].load()
         mrms_drainage: float | np.ndarray = float(drainage_rate_mm_hr)
         if drainage_tier != "tier0":
-            # Reproject/resample drainage onto MRMS grid if non-tier0 requested
+            drainage_res_m = float(sfincs_cfg.get("drainage_grid_res_m", 40.0))
+            imp, lc, dem_drain, polder_mask, x_coords, y_coords = (
+                _load_resampled_drainage_inputs(
+                    cfg=cfg,
+                    bbox_epsg26910=domain["bbox_epsg26910"],
+                    grid_res_m=drainage_res_m,
+                    project_crs=project_crs,
+                    drainage_tier=drainage_tier,
+                )
+            )
             drain_1a = compute_tier1a_drainage_rate_grid(
-                impervious_pct=np.full(mrms_da.shape[1:], 50.0, dtype=np.float32),
-                landcover=np.full(mrms_da.shape[1:], 22, dtype=np.int32),
+                impervious_pct=imp,
+                landcover=lc,
                 base_rate_mm_hr=float(sfincs_cfg.get("tier1a_base_mm_hr", 2.0)),
                 max_rate_mm_hr=float(sfincs_cfg.get("tier1a_max_mm_hr", 10.0)),
             )
-            mrms_drainage = drain_1a
+            if mean_rate_matched:
+                drain_1a = normalize_tier1a_mean_rate(
+                    drainage_1a_mm_hr=drain_1a,
+                    landcover=lc,
+                    impervious_pct=imp,
+                    target_mean_mm_hr=float(drainage_rate_mm_hr),
+                )
+            if drainage_tier == "tier1b":
+                mrms_times = pd.DatetimeIndex(
+                    mrms_da.coords["time"].values
+                ).tz_localize(None)
+                if tidal_file:
+                    tidal_rows_for_drain = _read_tidal_hydrograph_csv(Path(tidal_file))
+                    tide_series = _interpolate_mean_tide_series(
+                        tidal_rows=tidal_rows_for_drain,
+                        stations=list(cfg.get("project", {}).get("tide_gauges") or []),
+                        tref=tref,
+                        target_times=mrms_times,
+                    )
+                else:
+                    tide_series = np.full(len(mrms_times), -10.0, dtype=np.float32)
+                mrms_drainage = compute_tier1b_effective_drainage(
+                    drainage_1a_mm_hr=drain_1a,
+                    dem_m=dem_drain,
+                    tide_m=tide_series,
+                    head_full_m=float(sfincs_cfg.get("tier1b_head_full_m", 1.5)),
+                    polder_mask=polder_mask,
+                )
+            else:
+                mrms_drainage = drain_1a
+            mrms_da = mrms_da.interp(
+                y=y_coords,
+                x=x_coords,
+                method="nearest",
+                kwargs={"fill_value": "extrapolate"},
+            )
         precip_2d_da = build_mrms_net_precip_da(
             mrms_da=mrms_da,
             drainage_mm_hr=mrms_drainage,
@@ -1054,6 +1198,13 @@ def _build_and_run_single_scenario(
             base_rate_mm_hr=float(sfincs_cfg.get("tier1a_base_mm_hr", 2.0)),
             max_rate_mm_hr=float(sfincs_cfg.get("tier1a_max_mm_hr", 10.0)),
         )
+        if mean_rate_matched:
+            drainage_1a = normalize_tier1a_mean_rate(
+                drainage_1a_mm_hr=drainage_1a,
+                landcover=lc,
+                impervious_pct=imp,
+                target_mean_mm_hr=float(drainage_rate_mm_hr),
+            )
         if drainage_tier == "tier1b":
             if tidal_file:
                 tidal_rows_for_drain = _read_tidal_hydrograph_csv(Path(tidal_file))
@@ -1152,6 +1303,9 @@ def build_sfincs(
     drainage_tier: str | None = None,
     quadtree: bool | None = None,
     rain_source: str | None = None,
+    amc_mode: str | None = None,
+    mean_rate_matched: bool | None = None,
+    runs_dir: Path | None = None,
     skip_run: bool = False,
     force: bool = False,
 ) -> None:
@@ -1176,6 +1330,9 @@ def build_sfincs(
             drainage_tier_override=drainage_tier,
             quadtree_override=quadtree,
             rain_source_override=rain_source,
+            amc_mode_override=amc_mode,
+            mean_rate_matched_override=mean_rate_matched,
+            runs_dir_override=runs_dir,
         )
 
 
@@ -1225,6 +1382,25 @@ def main() -> None:
         help="Optional override for rainfall forcing source ('default', 'open_meteo', or 'mrms').",
     )
     parser.add_argument(
+        "--amc-mode",
+        type=str,
+        choices=["amc2", "auto", "amc3"],
+        default=None,
+        help="Antecedent soil moisture mode ('amc2', 'auto' via 5-day MRMS > 28 mm, or 'amc3').",
+    )
+    parser.add_argument(
+        "--mean-rate-matched",
+        action="store_true",
+        default=None,
+        help="Normalize Tier 1a/1b urban land drainage to match drainage_rate_mm_hr.",
+    )
+    parser.add_argument(
+        "--runs-dir",
+        type=Path,
+        default=None,
+        help="Optional override for SFINCS runs directory.",
+    )
+    parser.add_argument(
         "--skip-run",
         action="store_true",
         help="Write SFINCS model files without executing the Docker solver.",
@@ -1243,6 +1419,9 @@ def main() -> None:
         drainage_tier=args.drainage_tier,
         quadtree=args.quadtree,
         rain_source=args.rain_source,
+        amc_mode=args.amc_mode,
+        mean_rate_matched=args.mean_rate_matched,
+        runs_dir=args.runs_dir,
         skip_run=args.skip_run,
         force=args.force,
     )
