@@ -1,6 +1,6 @@
 # METHODS.md — Scientific Methodology & Reference Formulation
 
-This document is the living scientific methodology reference for `bay-urban-flood-map`. It explains what each peer-reviewed source contributes to the pipeline, documents the exact formulations and parameters used in the frozen **v0.2** San Francisco baseline and **v0.4** upgrades, and distinguishes mitigable model limitations from structural 2D-modeling boundaries. For the 5-tier multi-source validation protocol (`v0.5+`), see [`docs/VALIDATION_SPEC.md`](VALIDATION_SPEC.md).
+This document is the living scientific methodology reference for `bay-urban-flood-map`. It explains what each peer-reviewed source contributes to the pipeline, documents the exact formulations and parameters used in the frozen **v0.2** San Francisco baseline, **v0.4** upgrades, and **v0.6** anti-overfitting calibration ([`docs/reports/sf_v06_calibration_report.md`](reports/sf_v06_calibration_report.md)), and distinguishes mitigable model limitations from structural 2D-modeling boundaries. For the 5-tier multi-source validation protocol (`v0.5+`), see [`docs/VALIDATION_SPEC.md`](VALIDATION_SPEC.md).
 
 For operational pipeline contracts and CLI stages, see [`docs/MODEL_SPEC.md`](MODEL_SPEC.md). For upstream data licenses and provenance, see [`docs/DATA_SOURCES.md`](DATA_SOURCES.md).
 
@@ -15,16 +15,16 @@ Each component of the pipeline is derived from—or benchmarked against—specif
 
 | Component | Source & Citation | What Is Derived From It | Status |
 | --- | --- | --- | --- |
-| **Automated model assembly** | `Eilander et al. (2023)` | Reproducible `HydroMT-SFINCS` clipping, reprojection, forcing assembly, and multi-event hindcast validation protocol | Implemented (`02_build_sfincs.py`, 4-AR ensemble in **v0.4**) |
+| **Automated model assembly** | `Eilander et al. (2023)` | Reproducible `HydroMT-SFINCS` clipping, reprojection, forcing assembly, and multi-event hindcast validation protocol | Implemented (`02_build_sfincs.py`, 4-AR ensemble in **v0.4**, 5-AR cal/holdout in **v0.6**) |
 | **Reduced-physics compound solver** | `Leijnse et al. (2021)` | 2D local-inertial shallow-water equations with advection/viscosity, coupled rain + tide boundaries, and quadtree mesh refinement | Implemented (`v0.2` regular grid; `--quadtree` `40 m → 10 m` opt-in in **v0.4**) |
 | **Subgrid topography & friction** | `van Ormondt et al. (2025)` | Exact subgrid volume–depth and wet-area conveyance lookup tables (`sfincs.sbg`) mapping `2 m` terrain onto `20 m` cells | Implemented (`v0.1`/`v0.2`) |
 | **Urban building representation** | `Schubert & Sanders (2012)` | Building block-out (`+3.0 m` elevation bump + elevated roughness) to route runoff along street corridors rather than inside buildings | Implemented (`01_prep_terrain.py`) |
 | **Upscaled 2D urban raster concepts** | `Sanders & Schubert (2019)` | Fine-scale urban storage/conveyance retention and simplified drainage abstraction concepts for fast regional raster inundation | Conceptual design reference |
-| **2D urban drainage proxy** | `Bates et al. (2021)` | Parameterizing storm-drain removal in 2D from **NLCD urbanization/imperviousness** instead of unobtainable 1D pipe-invert GIS | Implemented (`--drainage-tier tier1a`, **v0.4**); SF default remains Tier 0 (`5.0 mm/hr`) after ablation |
+| **2D urban drainage proxy** | `Bates et al. (2021)` | Parameterizing storm-drain removal in 2D from **NLCD urbanization/imperviousness** instead of unobtainable 1D pipe-invert GIS | Implemented (`--drainage-tier tier1a`, `--mean-rate-matched`); SF default remains Tier 0 (`5.0 mm/hr`) after v0.4 & v0.6 ablations |
 | **Tide-locked outfall heuristic** | *Experimental extension* | Attenuating Tier 1a 2D drainage capacity as `(DEM - tide(t)) -> 0` (excluding pumped polders) | Implemented (`--drainage-tier tier1b`, **v0.4**); opt-in for **v0.7+** MS4s |
 | **SF Bay tidal amplification** | `Nederhoff et al. (2021)` | Spatially varying estuarine water levels (tidal amplification toward South Bay + surge) via multi-gauge NOAA CO-OPS interpolation | **Retained (`v0.4`)** 4-gauge `sfincs.bnd`/`sfincs.bzs` (`9414290`, `9414750`, `9414863`, `9414523`) |
 | **Gridded radar-gauge QPE** | NOAA MRMS (`MultiSensor_QPE_01H_Pass2`) | `1 km` hourly gauge-corrected radar precipitation (`netamprfile`) resolving convective AR rain bands and orographic gradients | **Retained (`v0.4`)** for historical AR hindcasts (`rain_source: "mrms"`) |
-| **311 crowdsourced validation** | `Agonafir et al. (2022)`; `Lerma et al. (2025)` | Using geo-located municipal 311 flood complaints with buffer capture, control sampling, and `ROC-AUC` to validate urban pluvial models | Implemented (`03_validate_sf.py`, 4-AR ensemble in **v0.4**) |
+| **311 crowdsourced validation** | `Agonafir et al. (2022)`; `Lerma et al. (2025)` | Using geo-located municipal 311 flood complaints with buffer capture, control sampling, and `ROC-AUC` to validate urban pluvial models | Implemented (`03_validate_sf.py`, 5-AR cal/holdout ensemble in **v0.6**) |
 
 ---
 
@@ -51,7 +51,7 @@ Raw LiDAR DEMs contain elevated bridge decks and smoothed coastal berms that blo
 1. **Building Block-Out (`Schubert & Sanders, 2012`):**
    Following Schubert & Sanders' *building block-out (BB)* treatment, building footprints are raised by `+3.0 m` (`building_handling: "elevation_bump"`) and assigned elevated roughness (`n = 0.30`), preventing artificial ponding inside structures and forcing runoff along street corridors.
 2. **Bounded Underpass Hydro-Enforcement:**
-   Road/rail crossings tagged `bridge`, `tunnel`, or `layer` are carved linearly between approach medians (`min_bump_m = 0.15 m`, `carve_half_width_m = 5.0 m`). Corridors exceeding `max_bump_m = 6.0 m` are skipped so bored hillside tunnels (e.g., Broadway and Stockton tunnels) are not carved into open canyons.
+   Road/rail crossings tagged `bridge`, `tunnel`, or `layer` are carved linearly between approach medians (`min_bump_m = 0.15 m`, `carve_half_width_m = 5.0 m`), with reproducible YAML QA overrides (`carve_exclude_osm_ids`, `manual_underpass_cuts` in `v0.6`). Corridors exceeding `max_bump_m = 6.0 m` are skipped so bored hillside tunnels (e.g., Broadway and Stockton tunnels) are not carved into open canyons.
 3. **Upward-Only Shoreline Crest Enforcement:**
    SFEI engineered shoreline defense classes (levees, seawalls, floodwalls, berms, engineered road embankments) are burned upward-only (`dem = max(dem, Z_Mean)`) across a `±2.0 m` half-width so narrow coastal defenses are preserved in coarse subgrid tables.
 4. **Roughness & SCS Curve Number Grids:**
@@ -111,7 +111,7 @@ Every upgrade is evaluated against two complementary datasets in `pipeline/03_va
 ## 8. Known Limitations: Mitigable vs. Structural
 
 ### Mitigable in Planned Milestones (`v0.4`–`v0.7`)
-- **Flat-street nuisance ponding (Tier 0 uniform drainage):** Uniform `5.0 mm/hr` over-ponds flat residential streets (`48.7%` of cells with slope `< 2%` reach `>= 0.05 m` in the Dec 2022 AR), while raising uniform drainage starves downstream bowls (`CSI` drops `0.1999 -> 0.1483`). *Mitigation (`v0.4` / `v0.6`):* **Tier 1a/1b** spatially varying 2D drainage (`Bates et al., 2021`) lets dense/upland corridors drain faster without starving low-lying bowls when mean-rate-matched.
+- **Flat-street nuisance ponding (Tier 0 uniform drainage):** Uniform `5.0 mm/hr` over-ponds flat residential streets (`48.7%` of cells with slope `< 2%` reach `>= 0.05 m` in the Dec 2022 AR), while raising uniform drainage starves downstream bowls (`CSI` drops `0.1999 -> 0.1483`). *v0.6 ablation outcome:* Mean-rate-matched **Tier 1a/1b** (`--mean-rate-matched`, `Bates et al., 2021`) was tested in `v0.6` Phase 2B and still starved SF's dense combined-sewer bowls (`CSI 0.1953 -> 0.1689`), so uniform `Tier 0` remains the frozen SF default while `--mean-rate-matched` is deferred to `v0.7` separate-MS4 testing.
 - **`20 m` sub-cell street smoothing:** Narrow alleys and curb-gutter channels (`< 20 m`) are averaged within computational cells, limiting exact `0 m` point accuracy (`17.2%`). *Mitigation (`v0.4`):* **SFINCS quadtree refinement** (`10 m` cells in low-lying urban/coastal corridors, `40–80 m` on steep uplands; `Leijnse et al., 2021`).
 - **Single-storm & 311 reporting bias:** Single-event validation and citizen 311 reporting biases (demographics, clogged catch basins, lateral backups; `Agonafir et al., 2022`). *Mitigation (`v0.4` / `v0.5`):* **4-AR MRMS hindcast ensemble** (`Eilander et al., 2023`) paired with 5-tier open validation (NOAA/USGS gauges, Caltrans/CHP closures, Groundsource, OpenFEMA NFIP; [`docs/VALIDATION_SPEC.md`](VALIDATION_SPEC.md)).
 - **Pumped polders:** Tier 1b `(DEM - tide)` lock-up is physically invalid inside pump-drained polders (e.g., East Palo Alto/Foster City, Alameda/Oakland low-lying basins). *Mitigation (`v0.7`):* Explicit `polder_mask_source` exclusions and SFINCS `pump` structures.

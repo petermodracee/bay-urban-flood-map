@@ -7,8 +7,8 @@ Operational engineering specification for `pipeline/` and `configs/`. For full s
 - **v0.2 (Complete):** Citywide San Francisco (`20 m` grid / `2 m` subgrid), SFEI shoreline crest enforcement, dynamic NOAA `9414290` tidal boundaries (`+0/+1/+3/+5 ft` SLR), Dec 31, 2022 AR hindcast + 3-way 311 validation, and derived SLR delta COGs.
 - **v0.3 (Complete — see [`docs/plan/PLAN_V03.md`](plan/PLAN_V03.md)):** Static hosting of `data/web_outputs/` (`EPSG:3857` COGs, GeoJSON, `manifest.json`) on Cloudflare R2 + Cloudflare Pages.
 - **v0.4 (Complete — see [`docs/plan/PLAN_V04.md`](plan/PLAN_V04.md) & [`docs/reports/sf_v02_vs_v04_ablation.md`](reports/sf_v02_vs_v04_ablation.md)):** Literature-backed upgrades on San Francisco (4-gauge Bay tides, Tier 1a/1b/2 2D drainage via `netamprfile`, 4-AR hindcast ensemble, `40 m -> 10 m` quadtree mesh via `hydromt_sfincs 2.0.0`, and NOAA MRMS 1 km gridded QPE) ablated against frozen v0.2. Retained defaults: 4-gauge Bay tides + NOAA MRMS 1 km QPE for historical ARs + uniform `20 m` Tier 0 (`5.0 mm/hr`), with Tier 1a/1b/2 and `--quadtree` opt-in.
-- **v0.5 (In Progress — see [`docs/plan/PLAN_V05.md`](plan/PLAN_V05.md) & [`docs/VALIDATION_SPEC.md`](VALIDATION_SPEC.md)):** 5-tier open multi-source validation layer (NOAA/USGS gauges, pluggable hydraulic benchmarks, Caltrans/CHP road closures, 311 + Google Research Groundsource, OpenFEMA NFIP) built and baseline-scored on frozen SF v0.4 outputs.
-- **v0.6 (Planned — see [`docs/plan/PLAN_V06.md`](plan/PLAN_V06.md)):** SF multi-tier diagnostic audit & anti-overfitting calibration pass (temporal holdout storms, cross-tier consensus, mean-rate-matched Tier 1, 5-day MRMS antecedent moisture, Tier C underpass fixes), plus public viewer validation overlays, historical AR selector, public methodology page, and Cloudflare R2/Pages republish (`v0.6.0`).
+- **v0.5 (Complete — see [`docs/plan/PLAN_V05.md`](plan/PLAN_V05.md), [`docs/VALIDATION_SPEC.md`](VALIDATION_SPEC.md), & [`docs/reports/sf_v05_multitier_validation.md`](reports/sf_v05_multitier_validation.md)):** 5-tier open multi-source validation layer (NOAA/USGS gauges, pluggable hydraulic benchmarks, DataSF DEM/SFFD Tier C, 311 + Google Research Groundsource, OpenFEMA NFIP) built and baseline-scored on frozen SF v0.4 outputs.
+- **v0.6 (In Progress: Phases 1–3 complete — see [`docs/plan/PLAN_V06.md`](plan/PLAN_V06.md) & [`docs/reports/sf_v06_calibration_report.md`](reports/sf_v06_calibration_report.md)):** Upgraded 3D `web/` viewer & Tier A–E overlays (Phase 1), reproducible Phase 2A terrain QA (`carve_exclude_osm_ids`, `manual_underpass_cuts`), anti-overfitting Phase 2B calibration across 5 ARs + SFPUC 100-yr (retaining Phase 2A terrain + v0.4 physics as frozen v0.6 defaults, promoting out-of-sample validated `ar_20241122`), and full 18-scenario `v0.6` COG export (Phase 3); methodology pages (Phase 4) and Cloudflare R2/Pages + Zenodo DOIs (Phase 5) remain.
 - **v0.7 (Planned):** San Francisquito Creek / East Palo Alto separate-MS4 pilot with zero-shot transfer baseline, pumped-polder handling (`sfincs.pump`), optional Tier 2 municipal overrides, and multi-region `web/` switching.
 - **v1.0 (Planned):** Urban Bay Core mosaic across SF, Peninsula, South Bay, and East Bay flatlands (SF, San Mateo, Santa Clara, Alameda, West Contra Costa); North Bay & Delta river basins (`sfincs.dis`) follow in `v1.1+`.
 
@@ -38,17 +38,16 @@ Simulate fixed water-level increments and map them to 2024 CA OPC scenarios (SF 
 All scripts must be idempotent, driven by YAML configs in `configs/` (e.g., `configs/sf_citywide.yml`), and assert CRS at boundaries:
 
 1. **`00_fetch_data.py`**
-   - Fetch/cache DEM, NLCD, SSURGO HSG, OSM roads/rail, DataSF/OSM buildings, SFEI shoreline crests, 311 reports, Open-Meteo rainfall, and NOAA CO-OPS / design tidal hydrographs into `data/raw/`.
+   - Fetch/cache DEM, NLCD, SSURGO HSG, OSM roads/rail, DataSF/OSM buildings, SFEI shoreline crests, 311 reports, Tier C/D/E validation sources, Open-Meteo/MRMS rainfall (including 5-day prior MRMS antecedent precipitation in `sf_mrms_antecedent_5day.json`), and NOAA CO-OPS / design tidal hydrographs into `data/raw/`.
 2. **`01_prep_terrain.py`**
    - Enforce upward-only SFEI shoreline crest elevations (`Z_Mean`, `±2.0 m` half-width).
-   - Burn underpasses/bridges at OSM crossings while skipping bored hillside tunnels (`max_bump_m: 6.0`).
+   - Burn underpasses/bridges at OSM crossings (with reproducible `carve_exclude_osm_ids` and `manual_underpass_cuts` YAML controls) while skipping bored hillside tunnels (`max_bump_m: 6.0`).
    - Apply building footprints (`+3.0 m` bump, `n = 0.30`) and write `hydro_dem`, `manning_n`, and `curve_number` GeoTIFFs (`EPSG:26910`).
 3. **`02_build_sfincs.py`**
    - Build `HydroMT-SFINCS` model (`20 m` grid / `2 m` subgrid in `sf_citywide.yml`), mask offshore `NoData` (`msk = 0`), set coastal `msk = 2` (`zmax: 0.5 m`) with native `sfincs.bnd`/`sfincs.bzs`, and preserve upland `msk = 3` outflow.
-   - Apply Tier 0 uniform drainage subtraction (`5.0 mm/hr`, `sfincs.prp`) and run `deltares/sfincs-cpu` via Docker.
+   - Apply Tier 0 uniform drainage subtraction (`5.0 mm/hr`, `sfincs.prp`) and NOAA MRMS 1 km QPE (`netamprfile`), with opt-in calibration/ablation flags (`--drainage-tier`, `--amc-mode`, `--mean-rate-matched`, `--quadtree`, `--runs-dir`), and run `deltares/sfincs-cpu` via Docker.
 4. **`03_validate_sf.py`**
-   - Downscale `zsmax` onto `2 m` DEM, exclude `NLCD == 11` open water from `land_valid_mask`, and score `>= 0.1524 m` (`6 in`) against SFPUC polygons (`HR`, `FAR`, `CSI` citywide + 7 corridors).
-   - Score historical hindcasts against SF 311 calls (`0 / 25 / 50 m` buffers, lift, Mann-Whitney `ROC-AUC`) and write `docs/reports/sf_v02_validation.md`.
+   - Downscale `zsmax` onto `2 m` DEM, exclude `NLCD == 11` open water from `land_valid_mask`, and score 5-tier open validation (Tier A NOAA gauges, Tier B SFPUC `>= 0.1524 m`, Tier C emergency/road disruptions, Tier D 311 `0 / 25 / 50 m` + Groundsource sub-basins, Tier E OpenFEMA NFIP tracts) into `validation_ensemble_metrics.json` (`docs/VALIDATION_SPEC.md`).
 5. **`04_export_cog.py`**
    - Mask dry/trace (`< 0.05 m`) and open-water cells (`< 0.5 m` or `NLCD == 11`), compute derived SLR deltas (`--all-scenarios`), reproject to `EPSG:3857` COGs, export simplified GeoJSON overlays (`< 2 MB`), and write `manifest.json` per [`docs/DATA_CONTRACTS.md`](DATA_CONTRACTS.md).
 
