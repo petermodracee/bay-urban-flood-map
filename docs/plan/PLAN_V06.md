@@ -60,8 +60,8 @@ From [`docs/reports/sf_v05_multitier_validation.md`](../reports/sf_v05_multitier
 ---
 
 ## Phase 3: Final Full-Matrix Export (`pipeline/04_export_cog.py`)
-- [ ] Run the full `10-yr` / `100-yr` × `+0/+1/+3/+5 ft` SLR matrix + derived deltas and well-validated historical AR hindcasts (`ar_20211024` Bomb Cyclone, `ar_20221231` NYE AR, `ar_20230109` AR; include `ar_20240204` / `ar_20241122` only if Phase 2B validates them) once on the frozen Phase 2A/2B terrain & physics.
-- [ ] Re-export `EPSG:3857` COGs (`gdalinfo` verified), refreshed Tier A gauge peak WSE GeoJSON, and `manifest.json` (`"version": "0.6"`), then run a quick local 3D sanity-check on the final exports.
+- [x] Run the full `10-yr` / `100-yr` × `+0/+1/+3/+5 ft` SLR matrix + derived deltas and well-validated historical AR hindcasts (`ar_20211024` Bomb Cyclone, `ar_20221231` NYE AR, `ar_20230109` AR; include `ar_20240204` / `ar_20241122` only if Phase 2B validates them) once on the frozen Phase 2A/2B terrain & physics.
+- [x] Re-export `EPSG:3857` COGs (`gdalinfo` verified), refreshed Tier A gauge peak WSE GeoJSON, and `manifest.json` (`"version": "0.6"`), then run a quick local 3D sanity-check on the final exports.
 
 ---
 

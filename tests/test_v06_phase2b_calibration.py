@@ -93,4 +93,5 @@ def test_sf_citywide_config_includes_second_holdout_ar_20241122() -> None:
     assert "sf_citywide_ar_20241122" in scenario_ids
     ensemble_ids = {e["id"] for e in cfg["validation"]["hindcast_ensemble"]}
     assert "ar_20241122" in ensemble_ids
-    assert set(cfg["export"]["holdout_storms"]) == {"ar_20240204", "ar_20241122"}
+    # Phase 3 promoted validated ar_20241122 to public COG export; ar_20240204 remains excluded.
+    assert set(cfg["export"]["holdout_storms"]) == {"ar_20240204"}
