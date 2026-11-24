@@ -1,8 +1,151 @@
 export const STORM_LABELS = {
 	"100yr": "100-Yr Design Storm",
 	"10yr": "10-Yr Design Storm",
-	ar_20221231: "Dec 31, 2022 AR Hindcast",
+	ar_20211024: "Oct 24, 2021 Atmospheric River",
+	ar_20221231: "Dec 31, 2022 Atmospheric River",
+	ar_20230109: "Jan 9, 2023 Atmospheric River",
 };
+
+export const HOTSPOTS = [
+	{ id: "alemany", label: "Alemany", lng: -122.411, lat: 37.734, zoom: 15.0 },
+	{
+		id: "soma",
+		label: "SOMA / Mission Bay",
+		lng: -122.398,
+		lat: 37.775,
+		zoom: 14.8,
+	},
+	{
+		id: "bayview",
+		label: "Bayview / Islais",
+		lng: -122.393,
+		lat: 37.743,
+		zoom: 14.5,
+	},
+	{
+		id: "sunset",
+		label: "Sunset / Wawona",
+		lng: -122.495,
+		lat: 37.737,
+		zoom: 15.0,
+	},
+];
+
+export function isHistoricalStorm(stormId) {
+	return String(stormId ?? "").startsWith("ar_");
+}
+
+export function groupAvailableStorms(scenarios) {
+	const storms = getAvailableStorms(scenarios);
+	return {
+		design: storms.filter((st) => !isHistoricalStorm(st.id)),
+		historical: storms.filter((st) => isHistoricalStorm(st.id)),
+	};
+}
+
+export function formatManifestSubtitle(manifest) {
+	const version = manifest?.version ? `v${manifest.version}` : "v0.6";
+	const parts = ["2 m Subgrid"];
+	if (manifest?.drainage_tier) {
+		parts.push(manifest.drainage_tier);
+	}
+	if (manifest?.rain_source) {
+		parts.push(manifest.rain_source);
+	}
+	return `${version} San Francisco (${parts.join(" · ")})`;
+}
+
+export function parseUrlHash(hashString) {
+	const raw = String(hashString ?? "")
+		.replace(/^#/, "")
+		.trim();
+	if (!raw) {
+		return {};
+	}
+	const params = new URLSearchParams(raw);
+	const parsed = {};
+	const storm = params.get("storm");
+	if (storm) {
+		parsed.storm = storm;
+	}
+	const slrRaw = params.get("slr");
+	if (slrRaw !== null && slrRaw !== "" && Number.isFinite(Number(slrRaw))) {
+		parsed.slrFt = Number(slrRaw);
+	}
+	const metric = params.get("metric");
+	if (metric === "depth" || metric === "delta") {
+		parsed.metric = metric;
+	}
+	const latRaw = params.get("lat");
+	const lngRaw = params.get("lng");
+	const zRaw = params.get("z");
+	if (latRaw !== null && lngRaw !== null) {
+		const lat = Number(latRaw);
+		const lng = Number(lngRaw);
+		if (
+			Number.isFinite(lat) &&
+			Number.isFinite(lng) &&
+			lat >= -90 &&
+			lat <= 90 &&
+			lng >= -180 &&
+			lng <= 180
+		) {
+			parsed.lat = lat;
+			parsed.lng = lng;
+		}
+	}
+	if (zRaw !== null && zRaw !== "" && Number.isFinite(Number(zRaw))) {
+		parsed.zoom = Number(zRaw);
+	}
+	if (params.get("3d") === "1") {
+		parsed.terrain3d = true;
+	}
+	return parsed;
+}
+
+export function formatUrlHash({
+	storm,
+	slrFt,
+	metric,
+	lat,
+	lng,
+	zoom,
+	terrain3d,
+}) {
+	const params = new URLSearchParams();
+	if (storm) {
+		params.set("storm", storm);
+	}
+	if (typeof slrFt === "number" && Number.isFinite(slrFt)) {
+		params.set("slr", String(slrFt));
+	}
+	if (metric) {
+		params.set("metric", metric);
+	}
+	if (typeof lat === "number" && Number.isFinite(lat)) {
+		params.set("lat", lat.toFixed(4));
+	}
+	if (typeof lng === "number" && Number.isFinite(lng)) {
+		params.set("lng", lng.toFixed(4));
+	}
+	if (typeof zoom === "number" && Number.isFinite(zoom)) {
+		params.set("z", zoom.toFixed(2));
+	}
+	if (terrain3d) {
+		params.set("3d", "1");
+	}
+	return `#${params.toString()}`;
+}
+
+export function buildGeocoderUrl(query) {
+	const q = String(query ?? "").trim();
+	const params = new URLSearchParams({
+		q,
+		bbox: "-122.53,37.70,-122.35,37.83",
+		limit: "5",
+	});
+	return `https://photon.komoot.io/api/?${params.toString()}`;
+}
 
 const SLR_LABELS = {
 	0: "Today (0 ft SLR)",

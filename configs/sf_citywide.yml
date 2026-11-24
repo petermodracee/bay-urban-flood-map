@@ -410,6 +410,11 @@ export:
   benchmark_geojson_file: "data/web_outputs/sf_sfpuc_100yr_benchmark.geojson"
   benchmark_simplify_tolerance_m: 1.0
   floods_311_geojson_file: "data/web_outputs/sf_311_20221231_floods.geojson"
+  tier_a_gauges_geojson_file: "data/web_outputs/sf_tier_a_gauges.geojson"
+  tier_e_nfip_geojson_file: "data/web_outputs/sf_tier_e_nfip_tracts.geojson"
+  topo_contours_geojson_file: "data/web_outputs/sf_topo_contours.geojson"
+  dem_cog_file: "data/web_outputs/sf_hydro_dem_3857.tif"
+  holdout_storms: ["ar_20240204"]
   manifest_file: "data/web_outputs/manifest.json"
-  manifest_version: "0.4"
+  manifest_version: "0.6"
   web_data_url_prefix: "/data"
