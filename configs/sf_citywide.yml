@@ -461,7 +461,7 @@ export:
   tier_e_nfip_geojson_file: "data/web_outputs/sf_tier_e_nfip_tracts.geojson"
   topo_contours_geojson_file: "data/web_outputs/sf_topo_contours.geojson"
   dem_cog_file: "data/web_outputs/sf_hydro_dem_3857.tif"
-  holdout_storms: ["ar_20240204", "ar_20241122"]
+  holdout_storms: ["ar_20240204"]
   manifest_file: "data/web_outputs/manifest.json"
   manifest_version: "0.6"
   web_data_url_prefix: "/data"

@@ -7,7 +7,7 @@ The repo has two decoupled halves connected only by static files in `data/web_ou
 - **`pipeline/` (Python + Docker):** Uses `HydroMT-SFINCS` (2D rain-on-grid with 1m–2m subgrid terrain) to simulate storm + SLR scenarios and export `EPSG:3857` Cloud Optimized GeoTIFFs (COGs).
 - **`web/` (Vite + MapLibre GL JS):** A serverless static web viewer that streams those COGs directly in the browser with client-side color ramps and click-to-query flood depths.
 
-**Current Focus:** `v0.5` 5-tier open multi-source validation baseline complete ([`docs/reports/sf_v05_multitier_validation.md`](docs/reports/sf_v05_multitier_validation.md)); next up: `v0.6` SF multi-tier calibration audit and `v0.7` San Francisquito Creek / East Palo Alto separate-MS4 pilot.
+**Current Focus:** `v0.6` Phases 1–3 complete (3D viewer & overlays, Phase 2A terrain QA, Phase 2B anti-overfitting calibration in [`docs/reports/sf_v06_calibration_report.md`](docs/reports/sf_v06_calibration_report.md), and Phase 3 full 18-scenario `v0.6` COG export); next up: `v0.6` Phase 4 (Public & Technical Methodology pages) and Phase 5 (Cloudflare R2/Pages publish & Zenodo DOIs), followed by `v0.7` San Francisquito Creek / East Palo Alto separate-MS4 pilot.
 
 ## Hard Invariants
 - **Python Environment:** Use `conda-forge` strictly (`environment.yml`). Do not mix `pip` geospatial binaries with conda packages.
@@ -21,7 +21,7 @@ The repo has two decoupled halves connected only by static files in `data/web_ou
 - **Scientific methodology & citations:** Read `docs/METHODS.md`.
 - **Upstream dataset licenses & provenance:** Read `docs/DATA_SOURCES.md`.
 - **Project rationale & tradeoffs:** Read `docs/DECISIONS.md`.
-- **Current milestone checklist:** Read `docs/plan/ROADMAP.md` and the active milestone plan (`docs/plan/PLAN_V05.md`, `docs/plan/PLAN_V04.md`, or `docs/plan/PLAN_V02.md`).
+- **Current milestone checklist:** Read `docs/plan/ROADMAP.md` and the active milestone plan (`docs/plan/PLAN_V06.md`, `docs/plan/PLAN_V05.md`, `docs/plan/PLAN_V04.md`, or `docs/plan/PLAN_V02.md`).
 - **Editing validation logic (`03_validate_*.py`):** Read `docs/VALIDATION_SPEC.md`.
 - **Editing `pipeline/` or `configs/`:** Read `docs/MODEL_SPEC.md` and `docs/DATA_CONTRACTS.md`.
 - **Editing `web/`:** Read `docs/WEB_SPEC.md` and `docs/DATA_CONTRACTS.md`.

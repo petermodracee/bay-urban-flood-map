@@ -4,6 +4,7 @@ export const STORM_LABELS = {
 	ar_20211024: "Oct 24, 2021 Atmospheric River",
 	ar_20221231: "Dec 31, 2022 Atmospheric River",
 	ar_20230109: "Jan 9, 2023 Atmospheric River",
+	ar_20241122: "Nov 22, 2024 Atmospheric River",
 };
 
 export const HOTSPOTS = [
