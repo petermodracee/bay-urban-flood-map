@@ -85,3 +85,13 @@ From [`docs/reports/sf_v05_multitier_validation.md`](../reports/sf_v05_multitier
 - Anti-overfitting guardrails and frozen v0.5 holdout split verified in `docs/reports/sf_v06_calibration_report.md`.
 - `pytest`, `gdalinfo`, and `web/` (`node --test`, `npm run lint`, `npm run build`) all pass.
 - Public & technical methodology pages verified, upgraded SF COGs + validation overlays live on Cloudflare R2/Pages, tagged `v0.6.0` (`--prerelease`), and archived with Zenodo Code + `CC BY 4.0` Dataset DOIs.
+
+---
+
+## Amendments (v0.6.1, Nov 2026)
+
+Added after the external methodology review; the plan above is kept as originally written.
+
+- **Retention gate:** The Phase 2B gate above included a holdout-neutrality condition. In v0.6.1 the protocol was revised so holdout storms are excluded from model selection and evaluated only afterward (see `web/methodology.html`, Validation Protocol). v0.6 selection was unaffected because no candidate passed the calibration criteria.
+- **Scenario count:** The Goal's "12-scenario" export became an 18-scenario export in Phase 3.
+- **Phase 5 release:** `v0.6.0` is skipped as a DOI release. Phase 5 is tracked in #64 (5a, pre-release and `v0.6.1` minting) and its post-release follow-up issue (5b); those issues supersede the Phase 5 checklist above.

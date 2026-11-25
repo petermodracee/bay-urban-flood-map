@@ -7,7 +7,7 @@ The repo has two decoupled halves connected only by static files in `data/web_ou
 - **`pipeline/` (Python + Docker):** Uses `HydroMT-SFINCS` (2D rain-on-grid with 1m–2m subgrid terrain) to simulate storm + SLR scenarios and export `EPSG:3857` Cloud Optimized GeoTIFFs (COGs).
 - **`web/` (Vite + MapLibre GL JS):** A serverless static web viewer that streams those COGs directly in the browser with client-side color ramps and click-to-query flood depths.
 
-**Current Focus:** `v0.6` Phases 1–4 complete (3D viewer & overlays, Phase 2A terrain QA, Phase 2B anti-overfitting calibration in [`docs/reports/sf_v06_calibration_report.md`](docs/reports/sf_v06_calibration_report.md), Phase 3 full 18-scenario `v0.6` COG export, and Phase 4 public `web/about.html` & technical `web/methodology.html` pages); next up: `v0.6` Phase 5 (Cloudflare R2/Pages publish & Zenodo DOIs), followed by `v0.7` San Francisquito Creek / East Palo Alto separate-MS4 pilot.
+**Current Focus:** `v0.6.1` complete (`v0.6` Phases 1–4: 3D viewer & overlays, Phase 2A terrain QA, Phase 2B anti-overfitting calibration in [`docs/reports/sf_v06_calibration_report.md`](docs/reports/sf_v06_calibration_report.md), Phase 3 full 18-scenario `EPSG:3857` COG export, and Phase 4 public `web/about.html` & technical `web/methodology.html` pages; plus `v0.6.1` rescore/sensitivity in [`docs/reports/sf_v061_rescore_report.md`](docs/reports/sf_v061_rescore_report.md) & [`docs/reports/sf_v061_phase3_report.md`](docs/reports/sf_v061_phase3_report.md), version-prefixed R2 keys, and `CITATION.cff`); next up: `v0.6` Phase 5 (Cloudflare R2/Pages publish & Zenodo DOIs for `v0.6.1`), followed by `v0.7` San Francisquito Creek / East Palo Alto separate-MS4 pilot.
 
 ## Hard Invariants
 - **Python Environment:** Use `conda-forge` strictly (`environment.yml`). Do not mix `pip` geospatial binaries with conda packages.
@@ -44,7 +44,7 @@ The repo has two decoupled halves connected only by static files in `data/web_ou
 - **Attribution:** Keep commit messages clean (no AI/agent footers); when a PR is AI-assisted, include a brief note and concrete verification results in the PR description.
 - **Verify Before Committing:** Run the relevant verification command (`pytest` or `npm run build`) before creating a commit.
 - **Remote Safety:** Never force-push (`--force`) or rewrite shared history. Ask for confirmation before pushing to remote or opening a pull request.
-- **Releases:** Cut a clean SemVer tag + GitHub Release on `main` when a milestone closes (`v0.x.0` with `--prerelease` until `v1.0.0`, no tag suffix) targeting the milestone's final merge commit and linking the milestone plan and validation report; ask for confirmation before publishing a release.
+- **Releases:** **Agents must never create GitHub releases or git tags.** Releases and tags are maintainer-only because every release mints a permanent Zenodo DOI. (Maintainer convention: cut a clean SemVer tag + GitHub Release on `main` when a milestone closes, with `--prerelease` until `v1.0.0`, linking the milestone plan and validation report.)
 - All CI checks must pass before merge (if/when configured).
 
 ## Boundaries (Ask First)

@@ -40,7 +40,7 @@ Core datasets (full citations and licenses in [`docs/DATA_SOURCES.md`](DATA_SOUR
 - **Shoreline Defenses:** SFEI San Francisco Bay Shore Inventory (`SFBayShoreInventory_SFEI_2016_0`, `Z_Mean` crest elevations).
 - **Urban Features:** OpenStreetMap roads/rail (`bridge`, `tunnel`, `layer`) and DataSF / OSM building footprints.
 - **Land Cover & Soils:** USGS Annual NLCD (land cover + % imperviousness) and USDA SSURGO Hydrologic Soil Groups (`HSG` A–D).
-- **Hydrometeorology & Validation:** NOAA Atlas 14 Vol. 6 IDF depths, Open-Meteo archive hourly rainfall, NOAA CO-OPS tide gauge `9414290` (San Francisco Presidio), SFPUC 100-Year Storm Flood Risk Map, and DataSF 311 flooding service requests.
+- **Hydrometeorology & Validation:** NOAA Atlas 14 Vol. 6 IDF depths & temporal distributions, NOAA MRMS 1 km hourly radar-gauge QPE (`MultiSensor_QPE_01H_Pass2`, default for historical ARs), Open-Meteo archive hourly rainfall (v0.2 control), 4-gauge NOAA CO-OPS Bay tide network (`9414290`, `9414750`, `9414863`, `9414523`), SFPUC 100-Year Storm Flood Risk Map (`jzu3-4yxp`) & Flood Elevations (`wppz-u2hi`), DataSF 311 flooding service requests, DataSF DEM / SFFD dispatches, and OpenFEMA NFIP claims.
 
 ---
 
@@ -106,14 +106,16 @@ Every upgrade is evaluated against two complementary datasets in `pipeline/03_va
 - **Citywide SFPUC (`100-yr`, `5.0 mm/hr`, `n = 0.030`):** `HR = 0.3884`, `FAR = 0.7083`, `CSI = 0.1999` (Alemany `CSI = 0.4157`, SOMA / Mission Bay `CSI = 0.3591`, Bayview / Islais Creek `CSI = 0.2798`).
 - **Dec 31, 2022 AR vs. 424 SF 311 Reports:** `0 m` lift `3.59x` (`>= 0.05 m`) / `3.92x` (`>= 0.1524 m`); `25 m` capture `67.2%` (`1.71x` lift, `ROC-AUC = 0.6715`); `50 m` capture `83.5%` (`1.26x` lift, `ROC-AUC = 0.6596`; SOMA `100.0%`, Mission `96.3%`, Central Waterfront `100.0%`).
 
+> **v0.5–v0.6.1 Expansion:** Validation expanded to a 5-tier open matrix ([`docs/VALIDATION_SPEC.md`](VALIDATION_SPEC.md)) across a 5-AR calibration/holdout ensemble (`2,071` 311 points), with `v0.6.1` adopting street right-of-way controls as primary for Tiers C & D, adding the SFPUC deep-and-contiguous filter (`>= 5,574 m²`, `CSI = 0.2344`) and continuous depth scoring against `wppz-u2hi`, and stratifying 311 skill by Census ACS income terciles ([`docs/reports/sf_v061_rescore_report.md`](reports/sf_v061_rescore_report.md), [`docs/reports/sf_v061_phase3_report.md`](reports/sf_v061_phase3_report.md)).
+
 ---
 
 ## 8. Known Limitations: Mitigable vs. Structural
 
 ### Mitigable in Planned Milestones (`v0.4`–`v0.7`)
 - **Flat-street nuisance ponding (Tier 0 uniform drainage):** Uniform `5.0 mm/hr` over-ponds flat residential streets (`48.7%` of cells with slope `< 2%` reach `>= 0.05 m` in the Dec 2022 AR), while raising uniform drainage starves downstream bowls (`CSI` drops `0.1999 -> 0.1483`). *v0.6 ablation outcome:* Mean-rate-matched **Tier 1a/1b** (`--mean-rate-matched`, extended from `Wing et al., 2017`) was tested in `v0.6` Phase 2B and still starved SF's dense combined-sewer bowls (`CSI 0.1953 -> 0.1689`), so uniform `Tier 0` (`5.0 mm/hr` effective parameter; roughly flat skill across `2.5–5.0 mm/hr` in the `v0.6.1` sweep) remains the frozen SF default while `--mean-rate-matched` is deferred to `v0.7` separate-MS4 testing.
-- **`20 m` sub-cell street smoothing:** Narrow alleys and curb-gutter channels (`< 20 m`) are averaged within computational cells, limiting exact `0 m` point accuracy (`17.2%`). *Mitigation (`v0.4`):* **SFINCS quadtree refinement** (`10 m` cells in low-lying urban/coastal corridors, `40–80 m` on steep uplands; `Leijnse et al., 2021`).
-- **Single-storm & 311 reporting bias:** Single-event validation and citizen 311 reporting biases (demographics, clogged catch basins, lateral backups; `Agonafir et al., 2022`). *Mitigation (`v0.4` / `v0.5`):* **4-AR MRMS hindcast ensemble** (`Eilander et al., 2023`) paired with 5-tier open validation (NOAA/USGS gauges, Caltrans/CHP closures, Groundsource, OpenFEMA NFIP; [`docs/VALIDATION_SPEC.md`](VALIDATION_SPEC.md)).
+- **`20 m` sub-cell street smoothing:** Narrow alleys and curb-gutter channels (`< 20 m`) are averaged within computational cells, limiting exact `0 m` point accuracy (`17.2%`). *v0.4 ablation outcome:* **SFINCS quadtree refinement** (`40 m -> 10 m` via `--quadtree`; `Leijnse et al., 2021`) was implemented and ablated, but uniform `20 m` scored better on SF citywide (`docs/reports/sf_v02_vs_v04_ablation.md`), so `--quadtree` remains opt-in.
+- **Single-storm & 311 reporting bias:** Single-event validation and citizen 311 reporting biases (demographics, clogged catch basins, lateral backups; `Agonafir et al., 2022`). *Mitigation (`v0.4`–`v0.6.1`):* **5-AR MRMS cal/holdout hindcast ensemble** (`Eilander et al., 2023`) paired with 5-tier open validation (NOAA/USGS gauges, SFPUC `jzu3-4yxp`/`wppz-u2hi`, DataSF DEM/SFFD, 311 with right-of-way controls & ACS income-tercile stratification, OpenFEMA NFIP; [`docs/VALIDATION_SPEC.md`](VALIDATION_SPEC.md)).
 - **Pumped polders:** Tier 1b `(DEM - tide)` lock-up is physically invalid inside pump-drained polders (e.g., East Palo Alto/Foster City, Alameda/Oakland low-lying basins). *Mitigation (`v0.7`):* Explicit `polder_mask_source` exclusions and SFINCS `pump` structures.
 - **Pacific Ocean wave runup:** Still-water tide gauges (`sfincs.bnd`/`sfincs.bzs`) omit Ocean Beach wave setup/runup (`Nederhoff et al., 2021`). *Mitigation (future):* Optional coupling with SFINCS `SnapWave` along open-coast Pacific boundaries.
 

@@ -86,7 +86,7 @@ def test_build_manifest_schema_and_config() -> None:
     assert entry3["slr_ft"] == 3
 
     manifest = exp_mod.build_manifest([entry0], version="0.1")
-    assert set(manifest.keys()) == {"version", "scenarios"}
+    assert set(manifest.keys()) == {"version", "license", "attribution", "scenarios"}
     assert manifest["version"] == "0.1"
     assert len(manifest["scenarios"]) == 1
 
@@ -247,6 +247,8 @@ def test_export_cog_end_to_end_synthetic_and_crs_check(tmp_path: Path) -> None:
 
     manifest = json.loads((web_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["version"] == "0.1"
+    assert manifest["license"] == "CC-BY-4.0"
+    assert "OpenStreetMap contributors" in manifest["attribution"]
     assert len(manifest["scenarios"]) == 1
     assert manifest["scenarios"][0]["url"] == "/data/sf_100yr_slr0ft_depth_3857.tif"
 
@@ -258,3 +260,21 @@ def test_export_cog_end_to_end_synthetic_and_crs_check(tmp_path: Path) -> None:
             src_crs="EPSG:4326",
             output_cog_path=tmp_path / "bad.tif",
         )
+
+
+def test_build_manifest_includes_license_and_attribution() -> None:
+    manifest = exp_mod.build_manifest(entries=[], version="v0.6.1")
+    assert manifest["license"] == "CC-BY-4.0"
+    assert (
+        manifest["attribution"]
+        == "SF Bay Urban Flood Map (Peter Modracee). Includes data © OpenStreetMap contributors (ODbL); see ATTRIBUTION.md."
+    )
+
+    custom = exp_mod.build_manifest(
+        entries=[],
+        version="v0.6.1",
+        license="CC-BY-4.0",
+        attribution="Custom attribution",
+    )
+    assert custom["license"] == "CC-BY-4.0"
+    assert custom["attribution"] == "Custom attribution"

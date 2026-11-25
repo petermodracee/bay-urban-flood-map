@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "bay-urban-flood-map: San Francisco Bay Area Urban Stormwater and Compound Sea Level Rise Flood Model"
+version: "0.6.1"
+license: "Apache-2.0"
+repository-code: "https://github.com/petermodracee/bay-urban-flood-map"
+url: "https://bay-urban-flood-map.pages.dev"
+authors:
+  - family-names: "Modracee"
+    given-names: "Peter"
+    orcid: "https://orcid.org/0009-0009-1210-9429"
+abstract: >-
+  An open-source, screening-level 2D urban stormwater and compound sea level rise
+  flood model and serverless web viewer for the San Francisco Bay Area, built with
+  HydroMT-SFINCS (20 m / 2 m subgrid terrain) and MapLibre GL JS with Cloud
+  Optimized GeoTIFFs (COGs). Models heavy rainfall pooling in impervious urban
+  basins under tidally constrained coastal boundary conditions across 10-year and
+  100-year design rainfall paired with high tide and storm surge (coincident
+  stress scenarios with undefined joint return period), 0 to +5 ft sea level rise
+  increments, and historical atmospheric river hindcasts, validated against four
+  open-data validation tiers plus a tide-boundary check.
+keywords:
+  - urban flooding
+  - stormwater
+  - sea level rise
+  - compound flooding
+  - SFINCS
+  - HydroMT
+  - San Francisco Bay Area
+  - Cloud Optimized GeoTIFF
