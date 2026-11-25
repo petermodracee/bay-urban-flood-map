@@ -4,13 +4,13 @@ An open-source urban stormwater and compound sea level rise (SLR) flood model an
 
 **Live Viewer:** https://bay-urban-flood-map.pages.dev
 
-**Status:** `v0.6` Phases 1–4 complete ([`docs/plan/PLAN_V06.md`](docs/plan/PLAN_V06.md), [`docs/reports/sf_v06_calibration_report.md`](docs/reports/sf_v06_calibration_report.md)) — upgraded 3D web viewer with Tier A–E validation overlays, reproducible Phase 2A terrain QA, anti-overfitting Phase 2B calibration across 5 Atmospheric Rivers (`2,071` 311 points) + SFPUC 100-yr, full 18-scenario `v0.6` `EPSG:3857` COG export (`manifest.json`), and public (`web/about.html`) + technical (`web/methodology.html`) methodology pages. Next up: `v0.6` Phase 5 (Cloudflare R2/Pages publish & Zenodo DOIs), followed by `v0.7` San Francisquito Creek / East Palo Alto separate-MS4 pilot.
+**Status:** `v0.6.1` complete ([`docs/plan/PLAN_V06.md`](docs/plan/PLAN_V06.md), [`docs/reports/sf_v06_calibration_report.md`](docs/reports/sf_v06_calibration_report.md), [`docs/reports/sf_v061_rescore_report.md`](docs/reports/sf_v061_rescore_report.md), [`docs/reports/sf_v061_phase3_report.md`](docs/reports/sf_v061_phase3_report.md)) — upgraded 3D web viewer with Tier A–E validation overlays, reproducible Phase 2A terrain QA, anti-overfitting Phase 2B calibration across 5 Atmospheric Rivers (`2,071` 311 points) + SFPUC 100-yr, full 18-scenario `v0.6` `EPSG:3857` COG export (`manifest.json`), `v0.6.1` methodology audit/rescore & sensitivity analyses (drainage-rate sweep, Atlas 14 temporal distribution, SFPUC `wppz-u2hi` elevations, right-of-way controls, income stratification), and public (`web/about.html`) + technical (`web/methodology.html`) pages. Next up: `v0.6` Phase 5 (Cloudflare R2/Pages publish & Zenodo DOIs), followed by `v0.7` San Francisquito Creek / East Palo Alto separate-MS4 pilot.
 
 > **Note:** This is a screening-level 2D overland pooling and coastal-compound flood model grounded in peer-reviewed literature and gated by controlled A/B ablations (see [`docs/METHODS.md`](docs/METHODS.md) and [`docs/DECISIONS.md`](docs/DECISIONS.md)). It is not a 1D parcel-level storm-pipe capacity model or a regulatory FEMA flood map.
 
 ## Citywide Scenarios (`configs/sf_citywide.yml`)
 
-10-year (`90.4 mm`) and 100-year (`144.0 mm`) NOAA Atlas 14 design storms crossed with fixed `0`, `+1`, `+3`, and `+5 ft` water-level increments mapped to **2024 California Ocean Protection Council (OPC)** guidance (NOAA SF gauge `9414290`, 2000 baseline), plus 4 validated historical Atmospheric River hindcasts (**Oct 24, 2021**, **Dec 31, 2022**, **Jan 9, 2023**, and **Nov 22, 2024**, forced with NOAA MRMS 1 km QPE and observed NOAA tides):
+10-year (`90.4 mm`) and 100-year (`144.0 mm`) NOAA Atlas 14 coincident stress scenarios (15-minute alternating-block rainfall paired with MHHW + 0.35 m surge; undefined joint return period) crossed with fixed `0`, `+1`, `+3`, and `+5 ft` water-level increments mapped to **2024 California Ocean Protection Council (OPC)** guidance (NOAA SF gauge `9414290`, 2000 baseline), plus 4 published historical Atmospheric River hindcasts (**Oct 24, 2021**, **Dec 31, 2022**, **Jan 9, 2023**, and **Nov 22, 2024**, forced with NOAA MRMS 1 km QPE and observed NOAA tides):
 
 | SLR Increment | 2024 CA OPC Mapping |
 | :--- | :--- |
@@ -35,7 +35,9 @@ An open-source urban stormwater and compound sea level rise (SLR) flood model an
 │   │   ├── sf_v02_validation.md           # v0.2 citywide SFPUC & 311 validation report
 │   │   ├── sf_v02_vs_v04_ablation.md      # v0.4 controlled ablation & MRMS ensemble report
 │   │   ├── sf_v05_multitier_validation.md # v0.5 5-tier open validation baseline report
-│   │   └── sf_v06_calibration_report.md   # v0.6 anti-overfitting calibration & holdout report
+│   │   ├── sf_v06_calibration_report.md   # v0.6 anti-overfitting calibration & holdout report
+│   │   ├── sf_v061_rescore_report.md      # v0.6.1 rescore (RoW controls, SFPUC filter & wppz-u2hi, NFIP)
+│   │   └── sf_v061_phase3_report.md       # v0.6.1 drainage-rate sweep & Atlas 14 TD sensitivity report
 │   └── plan/
 │       ├── ROADMAP.md        # Milestone index & future backlog
 │       ├── PLAN_V01.md       # v0.1 ~20 km² SF slice checklist (complete)
@@ -52,6 +54,8 @@ An open-source urban stormwater and compound sea level rise (SLR) flood model an
 │   ├── 01_prep_terrain.py    # Underpass carving, SFEI crests, roughness, & CN grids
 │   ├── 02_build_sfincs.py    # HydroMT-SFINCS builder & Docker solver runner
 │   ├── 03_validate_sf.py     # 5-tier open multi-source validation (Tiers A–E) + report generator
+│   ├── 03_rescore_v061.py    # v0.6.1 reproducible rescoring of frozen v0.6 outputs
+│   ├── 03_phase3_v061.py     # v0.6.1 drainage-rate sweep & Atlas 14 TD sensitivity runner
 │   └── 04_export_cog.py      # Downscale, SLR deltas, GeoJSON, & EPSG:3857 COGs
 ├── web/                      # Vite + MapLibre GL viewer (index.html, about.html, methodology.html)
 ├── data/                     # Local raw/processed/runs/web outputs (git-ignored)
