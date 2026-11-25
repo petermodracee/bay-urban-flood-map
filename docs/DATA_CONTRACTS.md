@@ -16,10 +16,12 @@ data/
 
 Every flood raster exported by `04_export_cog.py` for the web frontend must meet these exact specs:
 
-- **Filename Pattern:** `{region}_{storm}_{slr}_{metric}_3857.tif`
+- **Filename Pattern:** `{region}_{storm}_{slr}_{metric}_3857.tif` (design storms) or `{region}_{storm}_{metric}_3857.tif` (historical AR hindcasts with observed tides)
   - Examples:
-    - `sf_100yr_slr0ft_depth_3857.tif`
-    - `sf_100yr_slr3ft_delta_3857.tif`
+    - `sf_citywide_100yr_slr0ft_depth_3857.tif`
+    - `sf_citywide_100yr_slr3ft_delta_3857.tif`
+    - `sf_citywide_ar_20221231_depth_3857.tif`
+- **Auxiliary 3D Terrain DEM COG (`v0.6+`):** `sf_hydro_dem_3857.tif` (`EPSG:3857`, `4 m` resolution, `Float32` meters `NAVD88`, `BLOCKSIZE=256`, `COMPRESS=DEFLATE`, `PREDICTOR=3`), referenced by `overlays.dem_cog` for the viewer's `hybrid-dem://` 3D terrain mode.
 - **CRS:** `EPSG:3857` (Web Mercator) — required by `@geomatico/maplibre-cog-protocol`.
 - **Data Type:** `Float32` (single band).
 - **Units:** Meters (`m`).
@@ -33,6 +35,8 @@ Every flood raster exported by `04_export_cog.py` for the web frontend must meet
 - **Per-Storm 311 Flood Reports (Tier D, v0.2+ / v0.6+):** `sf_311_{YYYYMMDD}_floods.geojson` (`EPSG:4326` points with `service_request_id`, `requested_datetime`, `service_subtype`, `service_details`, `address`, `neighborhood`, and `storm_id`; `sf_311_20221231_floods.geojson` is retained for backwards compatibility).
 - **Per-Storm Roadway Closures & Emergency Dispatches (Tier C, v0.6+):** `sf_tier_c_{YYYYMMDD}_closures.geojson` (`EPSG:4326` points with `incident_id`, `source`, `incident_type`, `requested_datetime`, `address`, and `storm_id`).
 - **Coastal / Stream Gauge Peak WSE Pins (Tier A, v0.6+):** `sf_tier_a_gauges.geojson` (`EPSG:4326` points with `station_id`, `name`, `provider`, `storm_id`, `observed_peak_navd88_m`, `modeled_peak_navd88_m`, `bias_m`, `peak_timing_error_min`, and `datum` = `"NAVD88"`).
+- **FEMA NFIP Claims Choropleth (Tier E, v0.6+):** `sf_tier_e_nfip_tracts.geojson` (`EPSG:4326` census-tract polygons with positive NFIP claim counts and paid-loss aggregates, referenced by `overlays.tier_e_nfip`).
+- **Topographic Contours (v0.6+):** `sf_topo_contours.geojson` (`EPSG:4326` `10 m` `NAVD88` contour lines derived from the hydro-enforced DEM with `is_major` flag, referenced by `overlays.topo_contours`).
 
 ## 4. Validation Summary Contract (`validation_summary.json`)
 
