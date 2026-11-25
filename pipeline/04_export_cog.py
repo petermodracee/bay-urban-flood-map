@@ -152,15 +152,28 @@ def resolve_asset_url_prefix(web_data_url_prefix: str, manifest_version: str) ->
     return f"{base_prefix}/{version}" if base_prefix else version
 
 
+DEFAULT_MANIFEST_LICENSE = "CC-BY-4.0"
+DEFAULT_MANIFEST_ATTRIBUTION = (
+    "SF Bay Urban Flood Map (Peter Modracee). "
+    "Includes data © OpenStreetMap contributors (ODbL); see ATTRIBUTION.md."
+)
+
+
 def build_manifest(
     entries: Sequence[Mapping[str, Any]],
     version: str = "0.1",
     drainage_tier: str | None = None,
     rain_source: str | None = None,
     overlays: Mapping[str, Any] | None = None,
+    license: str | None = DEFAULT_MANIFEST_LICENSE,
+    attribution: str | None = DEFAULT_MANIFEST_ATTRIBUTION,
 ) -> dict[str, Any]:
     """Build the top-level manifest.json payload."""
     payload: dict[str, Any] = {"version": str(version)}
+    if license is not None:
+        payload["license"] = str(license)
+    if attribution is not None:
+        payload["attribution"] = str(attribution)
     if drainage_tier is not None:
         payload["drainage_tier"] = str(drainage_tier)
     if rain_source is not None:
@@ -1105,6 +1118,8 @@ def _export_overlays_and_manifest(
         if sfincs_cfg.get("rain_source")
         else None,
         overlays=overlays or None,
+        license=export_cfg.get("license", DEFAULT_MANIFEST_LICENSE),
+        attribution=export_cfg.get("attribution", DEFAULT_MANIFEST_ATTRIBUTION),
     )
     manifest_path = Path(export_cfg["manifest_file"])
     manifest_path.parent.mkdir(parents=True, exist_ok=True)

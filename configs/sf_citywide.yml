@@ -464,4 +464,6 @@ export:
   holdout_storms: ["ar_20240204"]
   manifest_file: "data/web_outputs/manifest.json"
   manifest_version: "v0.6.1"
+  license: "CC-BY-4.0"
+  attribution: "SF Bay Urban Flood Map (Peter Modracee). Includes data © OpenStreetMap contributors (ODbL); see ATTRIBUTION.md."
   web_data_url_prefix: "/data"

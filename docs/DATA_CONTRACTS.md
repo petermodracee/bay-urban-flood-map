@@ -119,8 +119,11 @@ The web frontend reads this file to populate dropdowns and resolve COG URLs with
       }
     }
     ```
-- **v0.6.1+ Version-Prefixed Object Keys & Pointer (`latest.json`):**
+- **v0.6.1+ Version-Prefixed Object Keys, License Metadata & Pointer (`latest.json`):**
   - Top-level `"version"` uses the `v`-prefixed release tag (e.g., `"v0.6.1"`), and all scenario and overlay `"url"` paths include that version prefix (e.g., `"/data/v0.6.1/sf_citywide_100yr_slr0ft_depth_3857.tif"`).
+  - Top-level licensing and attribution metadata for derived outputs:
+    - `"license": "CC-BY-4.0"`
+    - `"attribution": "SF Bay Urban Flood Map (Peter Modracee). Includes data © OpenStreetMap contributors (ODbL); see ATTRIBUTION.md."`
   - **R2 Bucket Key Layout (`deploy/upload_r2.sh`):**
     - `<version>/<filename>` (COGs, GeoJSON overlays, and `<version>/manifest.json`): served with `Cache-Control: public, max-age=31536000, immutable`. Released version prefixes are write-once; `deploy/upload_r2.sh` fails if the prefix already exists in the bucket.
     - `latest.json` (unversioned root pointer, uploaded last): served with `Cache-Control: public, max-age=300` so clients discover new releases within 5 minutes without busting immutable raster caches:
