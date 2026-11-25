@@ -4,7 +4,7 @@
 - **Build Tool:** Vite (vanilla JS or TypeScript; keep dependencies minimal).
 - **Mapping:** `maplibre-gl` + `@geomatico/maplibre-cog-protocol` for serverless COG streaming, client-side color functions (`setColorFunction`), and pixel value queries (`locationValues`).
 - **Vector Overlays:** `pmtiles` protocol for static vector layers.
-- **Hosting Target:** Static files only (Cloudflare Pages / GitHub Pages + R2/S3 for COGs). In local dev/preview, `web/vite.config.js` serves `data/web_outputs/` at `/data/` with HTTP `Range` request support.
+- **Hosting Target:** Static files only (Cloudflare Pages / GitHub Pages + R2/S3 for COGs). Hosted R2 objects live under immutable version prefixes (`<version>/<filename>`, `Cache-Control: public, max-age=31536000, immutable`) fronted by an unversioned `latest.json` pointer (`max-age=300`). `web/src/dataUrls.js` resolves the manifest via `latest.json` (or a build-time `VITE_DATA_VERSION` pin to `<version>/manifest.json`, with `404` fallback to unversioned `manifest.json`) and loads versioned asset paths against `VITE_DATA_BASE_URL`. In local dev/preview, `web/vite.config.js` serves `data/web_outputs/` at `/data/` (transparently falling back from `/data/<version>/<file>` to flat `data/web_outputs/<file>`) with HTTP `Range` request support.
 
 ## 2. Visual Hierarchy & Layer Ordering
 Street legibility is critical for urban flood maps. Use a free, no-API-key vector basemap (e.g., OpenFreeMap Positron) and always insert flood-depth COG layers **below** the basemap's road-label and building-outline layers (using MapLibre's `beforeId` parameter).

@@ -115,6 +115,18 @@ The web frontend reads this file to populate dropdowns and resolve COG URLs with
       }
     }
     ```
+- **v0.6.1+ Version-Prefixed Object Keys & Pointer (`latest.json`):**
+  - Top-level `"version"` uses the `v`-prefixed release tag (e.g., `"v0.6.1"`), and all scenario and overlay `"url"` paths include that version prefix (e.g., `"/data/v0.6.1/sf_citywide_100yr_slr0ft_depth_3857.tif"`).
+  - **R2 Bucket Key Layout (`deploy/upload_r2.sh`):**
+    - `<version>/<filename>` (COGs, GeoJSON overlays, and `<version>/manifest.json`): served with `Cache-Control: public, max-age=31536000, immutable`. Released version prefixes are write-once; `deploy/upload_r2.sh` fails if the prefix already exists in the bucket.
+    - `latest.json` (unversioned root pointer, uploaded last): served with `Cache-Control: public, max-age=300` so clients discover new releases within 5 minutes without busting immutable raster caches:
+      ```json
+      {
+        "version": "v0.6.1",
+        "manifest": "v0.6.1/manifest.json"
+      }
+      ```
+  - **Frontend Resolution (`web/src/dataUrls.js`):** When `VITE_DATA_VERSION` is set at build time, the viewer loads `<VITE_DATA_BASE_URL>/<version>/manifest.json` directly. Otherwise it fetches `<VITE_DATA_BASE_URL>/latest.json` (`cache: "no-store"`), follows its `"manifest"` path, and falls back to `<VITE_DATA_BASE_URL>/manifest.json` on `404` (for local dev or pre-versioned buckets).
 
 ## 6. Multi-Tier Ensemble Validation Contract (`validation_ensemble_metrics.json`)
 
