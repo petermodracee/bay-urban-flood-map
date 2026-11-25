@@ -16,9 +16,10 @@ abstract: >-
   HydroMT-SFINCS (20 m / 2 m subgrid terrain) and MapLibre GL JS with Cloud
   Optimized GeoTIFFs (COGs). Models heavy rainfall pooling in impervious urban
   basins under tidally constrained coastal boundary conditions across 10-year and
-  100-year NOAA Atlas 14 scenarios, 0 to +5 ft sea level rise increments, and
-  historical Atmospheric River hindcasts validated against five independent
-  open data tiers.
+  100-year design rainfall paired with high tide and storm surge (coincident
+  stress scenarios with undefined joint return period), 0 to +5 ft sea level rise
+  increments, and historical atmospheric river hindcasts, validated against four
+  open-data validation tiers plus a tide-boundary check.
 keywords:
   - urban flooding
   - stormwater
