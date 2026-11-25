@@ -23,6 +23,7 @@ An open-source urban stormwater and compound sea level rise (SLR) flood model an
 
 ```text
 ├── AGENTS.md                 # Coding agent invariants & workflow guardrails
+├── CITATION.cff              # Citation metadata (Zenodo & GitHub "Cite this repository")
 ├── docs/
 │   ├── METHODS.md            # Scientific methodology, equations, limitations, & DOIs
 │   ├── MODEL_SPEC.md         # Operational pipeline spec, datums, & domain traps
