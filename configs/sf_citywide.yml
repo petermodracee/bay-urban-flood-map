@@ -226,7 +226,7 @@ slr_increments:
   tide_ar_20221231:
     slr_ft: 0.0
     slr_m: 0.0
-    opc_2024_pathway: "Observed Hindcast (NOAA 9414290)"
+    opc_2024_pathway: "Observed Hindcast (NOAA Multi-Gauge)"
     opc_2024_horizon: "2022-12-31"
     tide_method: "noaa_coops"
     begin_date: "20221231"
