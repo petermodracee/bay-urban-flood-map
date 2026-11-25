@@ -549,6 +549,48 @@ def compute_land_valid_mask(
     return land_valid_mask
 
 
+def load_land_valid_mask(
+    hydro_dem_path: Path,
+    project_crs: str,
+    min_land_elevation_m: float = 0.5,
+    nlcd_landcover_path: Path | None = None,
+    exclude_open_water: bool = True,
+) -> tuple[np.ndarray, Affine]:
+    """Load hydro DEM (+ optional NLCD) and build the valid urban land mask and transform."""
+    with rasterio.open(hydro_dem_path) as dem_ds:
+        assert_crs_equals(dem_ds.crs, project_crs, str(hydro_dem_path))
+        dem_m = dem_ds.read(1).astype(np.float32)
+        dem_nodata = dem_ds.nodata if dem_ds.nodata is not None else -9999.0
+        dst_transform = dem_ds.transform
+
+    nlcd_arr: np.ndarray | None = None
+    if (
+        exclude_open_water
+        and nlcd_landcover_path is not None
+        and nlcd_landcover_path.exists()
+    ):
+        nlcd_arr = np.zeros(dem_m.shape, dtype=np.uint8)
+        with rasterio.open(nlcd_landcover_path) as nlcd_ds:
+            reproject(
+                source=nlcd_ds.read(1),
+                destination=nlcd_arr,
+                src_transform=nlcd_ds.transform,
+                src_crs=nlcd_ds.crs,
+                dst_transform=dst_transform,
+                dst_crs=project_crs,
+                resampling=Resampling.nearest,
+            )
+
+    land_valid_mask = compute_land_valid_mask(
+        dem_m=dem_m,
+        dem_nodata=dem_nodata,
+        min_land_elevation_m=min_land_elevation_m,
+        nlcd_landcover=nlcd_arr,
+        exclude_open_water=exclude_open_water,
+    )
+    return land_valid_mask, dst_transform
+
+
 def rasterize_benchmark_polygons(
     gdf_utm: gpd.GeoDataFrame,
     out_shape: tuple[int, int],

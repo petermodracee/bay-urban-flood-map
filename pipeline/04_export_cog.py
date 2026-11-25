@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import functools
 import importlib.util
 import json
 import math
@@ -37,6 +38,26 @@ def _load_pipeline_module(script_name: str, module_name: str) -> Any:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@functools.lru_cache(maxsize=1)
+def _load_validate_module() -> Any:
+    return _load_pipeline_module("03_validate_sf.py", "phase3_validate_sf")
+
+
+TIER_D_KEEP_COLUMNS: tuple[str, ...] = (
+    "service_request_id",
+    "requested_datetime",
+    "service_subtype",
+    "neighborhood",
+)
+TIER_C_KEEP_COLUMNS: tuple[str, ...] = (
+    "record_id",
+    "timestamp",
+    "category",
+    "source",
+    "neighborhood",
+)
 
 
 def assert_crs_equals(actual_crs: Any, expected_crs: str, label: str) -> None:
@@ -237,9 +258,11 @@ def _write_point_overlay_geojson(
     output_path: Path,
     keep_columns: Sequence[str],
     storm_id: str | None = None,
+    valid_land_mask: np.ndarray | None = None,
+    land_transform: Affine | None = None,
     max_size_bytes: int = 2 * 1024 * 1024,
 ) -> tuple[Path, int]:
-    """Clip a point vector layer to bbox_utm, reproject to EPSG:4326, and write GeoJSON."""
+    """Clip a point vector layer to bbox_utm (and optional valid_land_mask), reproject to EPSG:4326, and write GeoJSON."""
     if not source_path.exists():
         raise FileNotFoundError(f"Point overlay source not found: {source_path}")
     assert_crs_equals(project_crs, "EPSG:26910", "project_crs")
@@ -250,6 +273,11 @@ def _write_point_overlay_geojson(
 
     gdf_utm = gdf.to_crs(project_crs)
     clipped = gpd.clip(gdf_utm, box(*bbox_utm)).copy()
+    if valid_land_mask is not None and land_transform is not None:
+        val_mod = _load_validate_module()
+        clipped, _, _ = val_mod.extract_valid_land_points(
+            clipped, valid_land_mask, land_transform
+        )
     present_cols = [c for c in keep_columns if c in clipped.columns]
     clipped = clipped[[*present_cols, "geometry"]].copy()
     if storm_id is not None:
@@ -276,22 +304,19 @@ def export_311_geojson(
     project_crs: str,
     output_path: Path,
     storm_id: str | None = None,
+    valid_land_mask: np.ndarray | None = None,
+    land_transform: Affine | None = None,
 ) -> Path:
-    """Clip 311 flood reports to bbox_utm, reproject to EPSG:4326, and write GeoJSON."""
+    """Clip 311 flood reports to bbox_utm (and optional valid_land_mask), reproject to EPSG:4326, and write GeoJSON."""
     out_path, _ = _write_point_overlay_geojson(
         source_path=source_path,
         bbox_utm=bbox_utm,
         project_crs=project_crs,
         output_path=output_path,
-        keep_columns=(
-            "service_request_id",
-            "requested_datetime",
-            "service_subtype",
-            "service_details",
-            "address",
-            "neighborhood",
-        ),
+        keep_columns=TIER_D_KEEP_COLUMNS,
         storm_id=storm_id,
+        valid_land_mask=valid_land_mask,
+        land_transform=land_transform,
     )
     return out_path
 
@@ -302,15 +327,19 @@ def export_tier_c_geojson(
     project_crs: str,
     output_path: Path,
     storm_id: str | None = None,
+    valid_land_mask: np.ndarray | None = None,
+    land_transform: Affine | None = None,
 ) -> tuple[Path, int]:
-    """Clip Tier C roadway/rescue dispatches to bbox_utm, reproject to EPSG:4326, and write GeoJSON."""
+    """Clip Tier C roadway/rescue dispatches to bbox_utm (and optional valid_land_mask), reproject to EPSG:4326, and write GeoJSON."""
     return _write_point_overlay_geojson(
         source_path=source_path,
         bbox_utm=bbox_utm,
         project_crs=project_crs,
         output_path=output_path,
-        keep_columns=("record_id", "timestamp", "category", "source", "address"),
+        keep_columns=TIER_C_KEEP_COLUMNS,
         storm_id=storm_id,
+        valid_land_mask=valid_land_mask,
+        land_transform=land_transform,
     )
 
 
@@ -924,6 +953,20 @@ def _export_overlays_and_manifest(
         else str(cfg["project"].get("region_id", "region"))
     )
 
+    valid_land_mask: np.ndarray | None = None
+    land_transform: Affine | None = None
+    hydro_dem_for_mask = cfg.get("terrain_prep", {}).get("hydro_dem_file")
+    if hydro_dem_for_mask and Path(hydro_dem_for_mask).exists():
+        val_mod = _load_validate_module()
+        nlcd_raw = domain.get("nlcd_landcover_source")
+        valid_land_mask, land_transform = val_mod.load_land_valid_mask(
+            hydro_dem_path=Path(hydro_dem_for_mask),
+            project_crs=project_crs,
+            min_land_elevation_m=float(val_cfg.get("min_land_elevation_m", 0.5)),
+            nlcd_landcover_path=Path(nlcd_raw) if nlcd_raw else None,
+            exclude_open_water=bool(val_cfg.get("exclude_open_water", True)),
+        )
+
     for ev in val_cfg.get("hindcast_ensemble", []):
         storm_id = str(ev.get("id", ""))
         if not storm_id or storm_id in holdout_storms:
@@ -938,15 +981,10 @@ def _export_overlays_and_manifest(
                 bbox_utm=domain["bbox_epsg26910"],
                 project_crs=project_crs,
                 output_path=out_311,
-                keep_columns=(
-                    "service_request_id",
-                    "requested_datetime",
-                    "service_subtype",
-                    "service_details",
-                    "address",
-                    "neighborhood",
-                ),
+                keep_columns=TIER_D_KEEP_COLUMNS,
                 storm_id=storm_id,
+                valid_land_mask=valid_land_mask,
+                land_transform=land_transform,
             )
             tier_d_by_storm[storm_id] = {
                 "url": f"{url_prefix}/{out_311.name}",
@@ -967,6 +1005,8 @@ def _export_overlays_and_manifest(
                 project_crs=project_crs,
                 output_path=out_tier_c,
                 storm_id=storm_id,
+                valid_land_mask=valid_land_mask,
+                land_transform=land_transform,
             )
             tier_c_by_storm[storm_id] = {
                 "url": f"{url_prefix}/{out_tier_c.name}",
@@ -985,6 +1025,8 @@ def _export_overlays_and_manifest(
                 bbox_utm=domain["bbox_epsg26910"],
                 project_crs=project_crs,
                 output_path=Path(out_311_raw),
+                valid_land_mask=valid_land_mask,
+                land_transform=land_transform,
             )
             print(
                 f"[04_export_cog] Wrote 311 flood GeoJSON ({out_311_path.stat().st_size / 1024:.1f} KB) "
