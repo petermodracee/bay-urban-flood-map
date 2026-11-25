@@ -27,7 +27,15 @@ function serveWebOutputsPlugin() {
 		const reqPath = decodeURIComponent(
 			req.url.split("?")[0].slice("/data/".length),
 		);
-		const filePath = path.resolve(WEB_OUTPUTS_DIR, reqPath);
+		let filePath = path.resolve(WEB_OUTPUTS_DIR, reqPath);
+		if (
+			(!filePath.startsWith(WEB_OUTPUTS_DIR + path.sep) ||
+				!fs.existsSync(filePath)) &&
+			/^v[^/]+\/(.+)$/.test(reqPath)
+		) {
+			const unversionedPath = reqPath.replace(/^v[^/]+\//, "");
+			filePath = path.resolve(WEB_OUTPUTS_DIR, unversionedPath);
+		}
 		if (
 			!filePath.startsWith(WEB_OUTPUTS_DIR + path.sep) ||
 			!fs.existsSync(filePath)

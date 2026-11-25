@@ -141,6 +141,17 @@ def build_manifest_entry(
     return entry
 
 
+def resolve_asset_url_prefix(web_data_url_prefix: str, manifest_version: str) -> str:
+    """Resolve the manifest asset URL prefix, appending version when prefixed with 'v'."""
+    base_prefix = str(web_data_url_prefix).rstrip("/")
+    version = str(manifest_version).strip().strip("/")
+    if not version.startswith("v"):
+        return base_prefix
+    if base_prefix == version or base_prefix.endswith(f"/{version}"):
+        return base_prefix
+    return f"{base_prefix}/{version}" if base_prefix else version
+
+
 def build_manifest(
     entries: Sequence[Mapping[str, Any]],
     version: str = "0.1",
@@ -861,7 +872,11 @@ def _export_overlays_and_manifest(
     export_cfg = cfg["export"]
     val_cfg = cfg.get("validation", {})
     web_out_dir = Path(cfg["paths"]["web_output_dir"])
-    url_prefix = str(export_cfg.get("web_data_url_prefix", "/data")).rstrip("/")
+    manifest_version = str(export_cfg.get("manifest_version", "0.1")).strip()
+    url_prefix = resolve_asset_url_prefix(
+        str(export_cfg.get("web_data_url_prefix", "/data")),
+        manifest_version,
+    )
     holdout_storms = {str(s) for s in export_cfg.get("holdout_storms", [])}
 
     overlays: dict[str, Any] = {}
@@ -1084,7 +1099,7 @@ def _export_overlays_and_manifest(
     sfincs_cfg = cfg.get("sfincs_model", {})
     manifest = build_manifest(
         entries,
-        version=str(export_cfg.get("manifest_version", "0.1")),
+        version=manifest_version,
         drainage_tier=str(sfincs_cfg.get("drainage_tier", "tier0")),
         rain_source=str(sfincs_cfg.get("rain_source"))
         if sfincs_cfg.get("rain_source")

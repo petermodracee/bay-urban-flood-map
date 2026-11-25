@@ -110,6 +110,14 @@ test("groupAvailableStorms, formatManifestSubtitle, URL hash, and geocoder helpe
 		}),
 		"v0.6 San Francisco (2 m Subgrid · tier0 · mrms)",
 	);
+	assert.equal(
+		formatManifestSubtitle({
+			version: "v0.6.1",
+			drainage_tier: "tier0",
+			rain_source: "mrms",
+		}),
+		"v0.6.1 San Francisco (2 m Subgrid · tier0 · mrms)",
+	);
 
 	const hash = formatUrlHash({
 		storm: "ar_20211024",

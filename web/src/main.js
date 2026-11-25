@@ -5,7 +5,7 @@ import {
 	locationValues,
 	setColorFunction,
 } from "@geomatico/maplibre-cog-protocol";
-import { resolveDataAssetUrl } from "./dataUrls.js";
+import { resolveDataAssetUrl, resolveManifestUrl } from "./dataUrls.js";
 import {
 	createFloodColorRamp,
 	formatDepth,
@@ -32,11 +32,7 @@ const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
 const TERRARIUM_TILE_URL =
 	"https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
 const DATA_BASE_URL = import.meta.env.VITE_DATA_BASE_URL;
-const MANIFEST_URL = resolveDataAssetUrl(
-	"manifest.json",
-	DATA_BASE_URL,
-	window.location.origin,
-);
+const DATA_VERSION = import.meta.env.VITE_DATA_VERSION;
 
 const TERRAIN_SOURCE_ID = "aws-terrarium";
 const TERRAIN_HILLSHADE_LAYER_ID = "basemap-terrain-hillshade";
@@ -1249,7 +1245,12 @@ function initSearch() {
 }
 
 async function loadManifest() {
-	const response = await fetch(MANIFEST_URL, { cache: "no-store" });
+	const manifestUrl = await resolveManifestUrl({
+		rawBaseUrl: DATA_BASE_URL,
+		rawDataVersion: DATA_VERSION,
+		origin: window.location.origin,
+	});
+	const response = await fetch(manifestUrl, { cache: "no-store" });
 	if (!response.ok) {
 		throw new Error(`HTTP ${response.status} loading manifest.json`);
 	}
