@@ -1548,15 +1548,14 @@ map.on("click", async (e) => {
 		if (hit311.length > 0) {
 			const props = hit311[0].properties ?? {};
 			const title = escapeHtml(props.service_subtype || "311 Flood Report");
-			const details = escapeHtml(props.service_details || "");
-			const addr = escapeHtml(props.address || "Address unavailable");
+			const rawDt = String(props.requested_datetime || "").trim();
+			const dateLabel = escapeHtml(rawDt ? rawDt.slice(0, 10) : "");
 			const nbhd = escapeHtml(props.neighborhood || "");
+			const meta = [dateLabel, nbhd].filter(Boolean).join(" · ");
 			popup
 				.setLngLat(e.lngLat)
 				.setHTML(
-					`<strong>311 Report: ${title}</strong>` +
-						`${details ? ` (${details})` : ""}<br/>` +
-						`${addr}${nbhd ? ` — ${nbhd}` : ""}`,
+					`<strong>311 Report: ${title}</strong>${meta ? `<br/>${meta}` : ""}`,
 				)
 				.addTo(map);
 			return;
