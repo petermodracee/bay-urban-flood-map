@@ -1,6 +1,6 @@
 export const STORM_LABELS = {
-	"100yr": "100-Yr Design Storm",
-	"10yr": "10-Yr Design Storm",
+	"100yr": "100-Yr Rain + High Tide (Stress Scenario)",
+	"10yr": "10-Yr Rain + High Tide (Stress Scenario)",
 	ar_20211024: "Oct 24, 2021 Atmospheric River",
 	ar_20221231: "Dec 31, 2022 Atmospheric River",
 	ar_20230109: "Jan 9, 2023 Atmospheric River",

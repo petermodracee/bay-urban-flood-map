@@ -132,6 +132,220 @@ def compute_flood_metrics(
     }
 
 
+def compute_flood_metrics_from_mask(
+    mod_mask: np.ndarray,
+    obs_mask: np.ndarray,
+    valid_mask: np.ndarray,
+) -> dict[str, float | int]:
+    """Compute Hit Rate, False Alarm Ratio, and CSI from a pre-filtered boolean model mask."""
+    valid = valid_mask.astype(bool)
+    mod = mod_mask.astype(bool) & valid
+    obs = obs_mask.astype(bool) & valid
+
+    tp = int(np.sum(mod & obs))
+    fp = int(np.sum(mod & (~obs)))
+    fn = int(np.sum((~mod) & obs))
+
+    hit_rate = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    false_alarm_ratio = fp / (tp + fp) if (tp + fp) > 0 else 0.0
+    csi = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 0.0
+
+    return {
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "hit_rate": round(hit_rate, 6),
+        "false_alarm_ratio": round(false_alarm_ratio, 6),
+        "csi": round(csi, 6),
+    }
+
+
+def filter_deep_and_contiguous_mask(
+    depth_m: np.ndarray,
+    valid_mask: np.ndarray,
+    cell_area_m2: float,
+    depth_threshold_m: float = 0.1524,
+    min_area_m2: float = 5574.0,
+) -> np.ndarray:
+    """Keep only connected flooded components (>= depth_threshold_m) with area >= min_area_m2."""
+    raw_mask = (
+        np.isfinite(depth_m)
+        & (depth_m >= float(depth_threshold_m))
+        & valid_mask.astype(bool)
+    )
+    if float(min_area_m2) <= 0.0 or not np.any(raw_mask):
+        return raw_mask
+    min_cells = math.ceil(float(min_area_m2) / float(cell_area_m2))
+    labeled, num_features = ndimage.label(
+        raw_mask, structure=np.ones((3, 3), dtype=int)
+    )
+    if num_features == 0:
+        return np.zeros_like(raw_mask, dtype=bool)
+    counts = np.bincount(labeled.ravel())
+    keep_labels = np.where(counts >= min_cells)[0]
+    keep_labels = keep_labels[keep_labels != 0]
+    if keep_labels.size == 0:
+        return np.zeros_like(raw_mask, dtype=bool)
+    return np.isin(labeled, keep_labels)
+
+
+def compute_benchmark_depth_diagnostics(
+    depth_m: np.ndarray,
+    obs_mask: np.ndarray,
+    valid_mask: np.ndarray,
+    nodata_value: float = -9999.0,
+) -> dict[str, Any]:
+    """Compute continuous modeled depth statistics inside vs. outside benchmark polygons."""
+    valid = valid_mask.astype(bool) & np.isfinite(depth_m) & (depth_m != nodata_value)
+    obs = obs_mask.astype(bool) & valid
+    non_obs = (~obs) & valid
+
+    def _stats(arr: np.ndarray) -> dict[str, float | int]:
+        if arr.size == 0:
+            return {
+                "n_cells": 0,
+                "mean_m": 0.0,
+                "median_m": 0.0,
+                "p75_m": 0.0,
+                "p90_m": 0.0,
+                "frac_ge_05m": 0.0,
+                "frac_ge_1524m": 0.0,
+            }
+        return {
+            "n_cells": int(arr.size),
+            "mean_m": round(float(np.mean(arr)), 4),
+            "median_m": round(float(np.median(arr)), 4),
+            "p75_m": round(float(np.percentile(arr, 75)), 4),
+            "p90_m": round(float(np.percentile(arr, 90)), 4),
+            "frac_ge_05m": round(float(np.mean(arr >= 0.05)), 4),
+            "frac_ge_1524m": round(float(np.mean(arr >= 0.1524)), 4),
+        }
+
+    return {
+        "inside_benchmark": _stats(depth_m[obs]),
+        "outside_benchmark": _stats(depth_m[non_obs]),
+    }
+
+
+SFCD_TO_NAVD88_FT = 11.35
+FT_TO_M = 0.3048
+
+
+def _safe_corr_pair(x: np.ndarray, y: np.ndarray) -> tuple[float | None, float | None]:
+    """Return (pearson_r, spearman_rho), or None where variance is zero or n < 3."""
+    if x.size < 3 or np.std(x) == 0.0 or np.std(y) == 0.0:
+        return None, None
+    r_val, _ = stats.pearsonr(x, y)
+    rho_val, _ = stats.spearmanr(x, y)
+    r_out = round(float(r_val), 4) if np.isfinite(r_val) else None
+    rho_out = round(float(rho_val), 4) if np.isfinite(rho_val) else None
+    return r_out, rho_out
+
+
+def compute_sfpuc_elevation_metrics(
+    model_depth_m: np.ndarray,
+    dem_m: np.ndarray,
+    sfpuc_wse_navd88_m: np.ndarray,
+    valid_land_mask: np.ndarray,
+    min_model_depth_m: float = 0.05,
+    nodata_value: float = -9999.0,
+) -> dict[str, Any]:
+    """Compare modeled WSE and depth against rasterized SFPUC flood elevations (NAVD88 m)."""
+    valid = (
+        valid_land_mask.astype(bool)
+        & np.isfinite(sfpuc_wse_navd88_m)
+        & np.isfinite(dem_m)
+        & (dem_m != nodata_value)
+        & np.isfinite(model_depth_m)
+        & (model_depth_m != nodata_value)
+    )
+
+    sfpuc_depth_m = np.maximum(0.0, sfpuc_wse_navd88_m - dem_m)
+    model_wse_m = dem_m + model_depth_m
+
+    def _empty_all() -> dict[str, Any]:
+        return {
+            "n_cells": 0,
+            "sfpuc_depth_mean_m": None,
+            "sfpuc_depth_median_m": None,
+            "model_depth_mean_m": None,
+            "model_depth_median_m": None,
+            "depth_rmse_m": None,
+            "depth_mae_m": None,
+            "depth_bias_m": None,
+            "depth_spearman_rho": None,
+        }
+
+    def _empty_wet() -> dict[str, Any]:
+        return {
+            "n_cells": 0,
+            "wse_rmse_m": None,
+            "wse_mae_m": None,
+            "wse_bias_m": None,
+            "wse_pearson_r": None,
+            "wse_spearman_rho": None,
+            "depth_rmse_m": None,
+            "depth_mae_m": None,
+            "depth_bias_m": None,
+            "depth_pearson_r": None,
+            "depth_spearman_rho": None,
+        }
+
+    if not np.any(valid):
+        return {"all_zone_cells": _empty_all(), "mutually_wet_cells": _empty_wet()}
+
+    mod_d_all = model_depth_m[valid].astype(np.float64)
+    sf_d_all = sfpuc_depth_m[valid].astype(np.float64)
+    diff_d_all = mod_d_all - sf_d_all
+    _, rho_d_all = _safe_corr_pair(mod_d_all, sf_d_all)
+
+    all_zone = {
+        "n_cells": int(mod_d_all.size),
+        "sfpuc_depth_mean_m": round(float(np.mean(sf_d_all)), 4),
+        "sfpuc_depth_median_m": round(float(np.median(sf_d_all)), 4),
+        "model_depth_mean_m": round(float(np.mean(mod_d_all)), 4),
+        "model_depth_median_m": round(float(np.median(mod_d_all)), 4),
+        "depth_rmse_m": round(float(np.sqrt(np.mean(diff_d_all**2))), 4),
+        "depth_mae_m": round(float(np.mean(np.abs(diff_d_all))), 4),
+        "depth_bias_m": round(float(np.mean(diff_d_all)), 4),
+        "depth_spearman_rho": rho_d_all,
+    }
+
+    wet = (
+        valid
+        & (model_depth_m >= min_model_depth_m)
+        & (sfpuc_depth_m >= min_model_depth_m)
+    )
+    if not np.any(wet):
+        return {"all_zone_cells": all_zone, "mutually_wet_cells": _empty_wet()}
+
+    mod_w_wet = model_wse_m[wet].astype(np.float64)
+    sf_w_wet = sfpuc_wse_navd88_m[wet].astype(np.float64)
+    diff_w_wet = mod_w_wet - sf_w_wet
+    r_w_wet, rho_w_wet = _safe_corr_pair(mod_w_wet, sf_w_wet)
+
+    mod_d_wet = model_depth_m[wet].astype(np.float64)
+    sf_d_wet = sfpuc_depth_m[wet].astype(np.float64)
+    diff_d_wet = mod_d_wet - sf_d_wet
+    r_d_wet, rho_d_wet = _safe_corr_pair(mod_d_wet, sf_d_wet)
+
+    mutually_wet = {
+        "n_cells": int(mod_w_wet.size),
+        "wse_rmse_m": round(float(np.sqrt(np.mean(diff_w_wet**2))), 4),
+        "wse_mae_m": round(float(np.mean(np.abs(diff_w_wet))), 4),
+        "wse_bias_m": round(float(np.mean(diff_w_wet)), 4),
+        "wse_pearson_r": r_w_wet,
+        "wse_spearman_rho": rho_w_wet,
+        "depth_rmse_m": round(float(np.sqrt(np.mean(diff_d_wet**2))), 4),
+        "depth_mae_m": round(float(np.mean(np.abs(diff_d_wet))), 4),
+        "depth_bias_m": round(float(np.mean(diff_d_wet)), 4),
+        "depth_pearson_r": r_d_wet,
+        "depth_spearman_rho": rho_d_wet,
+    }
+
+    return {"all_zone_cells": all_zone, "mutually_wet_cells": mutually_wet}
+
+
 def find_top_false_positive_clusters(
     depth_m: np.ndarray,
     obs_mask: np.ndarray,
@@ -518,6 +732,7 @@ def compute_point_capture_metrics(
     subtype_col: str = "service_subtype",
     group_col: str = "neighborhood",
     address_col: str = "address",
+    control_coords: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> dict[str, Any]:
     """Compute region-agnostic point-vs-raster capture, lift, and ROC-AUC metrics."""
     filtered, xs_pts, ys_pts = extract_valid_land_points(
@@ -529,12 +744,18 @@ def compute_point_capture_metrics(
             "Cannot compute point validation without valid land cells and points."
         )
 
-    xs_ctrl, ys_ctrl = sample_random_land_controls(
-        valid_land_mask=valid_land_mask,
-        transform=transform,
-        n_controls=n_controls,
-        seed=seed,
-    )
+    if control_coords is not None:
+        xs_ctrl, ys_ctrl = (
+            np.asarray(control_coords[0], dtype=np.float64),
+            np.asarray(control_coords[1], dtype=np.float64),
+        )
+    else:
+        xs_ctrl, ys_ctrl = sample_random_land_controls(
+            valid_land_mask=valid_land_mask,
+            transform=transform,
+            n_controls=n_controls,
+            seed=seed,
+        )
     n_ctrl_eff = xs_ctrl.size
 
     sorted_radii = tuple(sorted(float(r) for r in radii_m))
@@ -1129,6 +1350,21 @@ def load_benchmark_specs(cfg: Mapping[str, Any]) -> list[BenchmarkSpec]:
     return specs
 
 
+def filter_right_of_way_lines(
+    roads_gdf_utm: gpd.GeoDataFrame | None,
+) -> gpd.GeoDataFrame:
+    """Filter OSM roads/rail GeoDataFrame to public right-of-way (streets and sidewalks)."""
+    if roads_gdf_utm is None or roads_gdf_utm.empty:
+        return gpd.GeoDataFrame(geometry=[], crs="EPSG:26910")
+    if "highway" in roads_gdf_utm.columns:
+        hw = roads_gdf_utm["highway"].astype(str).str.strip()
+        mask = roads_gdf_utm["highway"].notna() & (hw != "") & (hw != "None")
+        filtered = roads_gdf_utm.loc[mask].copy()
+        if not filtered.empty:
+            return filtered
+    return roads_gdf_utm.copy()
+
+
 def _extract_road_linestrings(
     roads_gdf_utm: gpd.GeoDataFrame | None,
 ) -> list[LineString]:
@@ -1598,6 +1834,8 @@ def evaluate_groundsource_subbasin_match(
             n_neither += 1
 
     hit_rate = round(n_both / n_gs_present, 4) if n_gs_present > 0 else None
+    n_gs_absent = n_model_only + n_neither
+    specificity = round(n_neither / n_gs_absent, 4) if n_gs_absent > 0 else None
     accuracy = (
         round((n_both + n_neither) / evaluated_subbasins, 4)
         if evaluated_subbasins > 0
@@ -1655,6 +1893,13 @@ def evaluate_groundsource_subbasin_match(
         "n_model_only": int(n_model_only),
         "n_neither": int(n_neither),
         "presence_hit_rate": hit_rate,
+        "specificity": specificity,
+        "confusion_matrix": {
+            "tp": int(n_both),
+            "fp": int(n_model_only),
+            "fn": int(n_gs_only),
+            "tn": int(n_neither),
+        },
         "presence_accuracy": accuracy,
         "matched_ensemble_events": matched_events,
         "holdout_storm_candidates": holdout_candidates,
@@ -1757,6 +2002,228 @@ def aggregate_ensemble_311_metrics(
         ],
         "ensemble_mean": {"by_buffer": ensemble_mean_by_buffer},
         "regional_crosschecks": crosschecks_payload,
+    }
+
+
+def compute_pooled_ensemble_point_metrics(
+    event_results: Sequence[Mapping[str, Any]],
+    radii_m: Sequence[float] = (0.0, 25.0, 50.0),
+    thresholds_m: Sequence[float] = (0.05, 0.1524),
+    weight_key: str = "valid_land_points",
+) -> dict[str, Any]:
+    """Compute point-weighted pooled ensemble capture, control rate, lift, and AUC."""
+    if not event_results:
+        raise ValueError("event_results must not be empty.")
+
+    total_pts = sum(int(ev.get(weight_key, 0)) for ev in event_results)
+    if total_pts <= 0:
+        raise ValueError(f"Total {weight_key} must be positive.")
+
+    by_buffer: list[dict[str, Any]] = []
+    for r_m in sorted(float(r) for r in radii_m):
+        weighted_auc_num = 0.0
+        weighted_auc_den = 0
+        thr_out: dict[str, Any] = {}
+        for thr in thresholds_m:
+            thr_key = f"{thr:g}m"
+            tot_hits = 0
+            tot_pts_thr = 0
+            weighted_ctrl_num = 0.0
+            for ev in event_results:
+                n_ev = int(ev.get(weight_key, 0))
+                if n_ev <= 0:
+                    continue
+                buf = next(
+                    (
+                        b
+                        for b in ev.get("by_buffer", [])
+                        if math.isclose(float(b["radius_m"]), r_m)
+                    ),
+                    None,
+                )
+                if buf is None:
+                    continue
+                t_info = buf.get("thresholds", {}).get(thr_key)
+                if t_info is None:
+                    continue
+                tot_hits += int(t_info["hit_count"])
+                tot_pts_thr += n_ev
+                weighted_ctrl_num += float(t_info["control_rate"]) * n_ev
+
+            cap = tot_hits / tot_pts_thr if tot_pts_thr > 0 else 0.0
+            ctrl = weighted_ctrl_num / tot_pts_thr if tot_pts_thr > 0 else 0.0
+            lift = round(cap / ctrl, 3) if ctrl > 0.0 else None
+            thr_out[thr_key] = {
+                "hit_count": int(tot_hits),
+                "total_points": int(tot_pts_thr),
+                "capture_rate": round(cap, 4),
+                "control_rate": round(ctrl, 4),
+                "lift": lift,
+            }
+
+        for ev in event_results:
+            n_ev = int(ev.get(weight_key, 0))
+            if n_ev <= 0:
+                continue
+            buf = next(
+                (
+                    b
+                    for b in ev.get("by_buffer", [])
+                    if math.isclose(float(b["radius_m"]), r_m)
+                ),
+                None,
+            )
+            if buf is not None and buf.get("ar_roc_auc") is not None:
+                weighted_auc_num += float(buf["ar_roc_auc"]) * n_ev
+                weighted_auc_den += n_ev
+
+        by_buffer.append(
+            {
+                "radius_m": r_m,
+                "ar_roc_auc_weighted": (
+                    round(weighted_auc_num / weighted_auc_den, 6)
+                    if weighted_auc_den > 0
+                    else None
+                ),
+                "thresholds": thr_out,
+            }
+        )
+
+    return {"total_points": int(total_pts), "by_buffer": by_buffer}
+
+
+def compute_income_stratified_point_metrics(
+    event_samples: Sequence[Mapping[str, Any]],
+    tracts_income_gdf_utm: gpd.GeoDataFrame,
+    income_col: str = "median_income_usd",
+    n_quantiles: int = 3,
+    radii_m: Sequence[float] = (0.0, 25.0, 50.0),
+    depth_threshold_m: float = 0.05,
+) -> dict[str, Any]:
+    """Stratify pooled point-vs-control metrics across census-tract median income quantiles."""
+    valid_tracts = tracts_income_gdf_utm[
+        tracts_income_gdf_utm[income_col].notna()
+        & np.isfinite(pd.to_numeric(tracts_income_gdf_utm[income_col], errors="coerce"))
+        & (pd.to_numeric(tracts_income_gdf_utm[income_col], errors="coerce") > 0)
+    ].copy()
+    valid_tracts[income_col] = pd.to_numeric(valid_tracts[income_col], errors="coerce")
+    if valid_tracts.empty:
+        return {"n_income_tracts": 0, "strata": []}
+
+    labels = (
+        ["Low Income", "Middle Income", "High Income"]
+        if n_quantiles == 3
+        else [f"Q{i + 1}" for i in range(n_quantiles)]
+    )
+    valid_tracts["income_stratum"] = pd.qcut(
+        valid_tracts[income_col],
+        q=n_quantiles,
+        labels=labels,
+        duplicates="drop",
+    )
+
+    stratum_bounds: dict[str, dict[str, Any]] = {}
+    for lbl in labels:
+        sub = valid_tracts[valid_tracts["income_stratum"] == lbl]
+        stratum_bounds[lbl] = {
+            "n_tracts": len(sub),
+            "min_income_usd": round(float(sub[income_col].min()), 0)
+            if len(sub)
+            else None,
+            "max_income_usd": round(float(sub[income_col].max()), 0)
+            if len(sub)
+            else None,
+        }
+
+    # Spatial join helper
+    def _assign_stratum(xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+        pts = gpd.GeoDataFrame(
+            {"_idx": np.arange(len(xs))},
+            geometry=gpd.points_from_xy(xs, ys),
+            crs=valid_tracts.crs,
+        )
+        joined = gpd.sjoin(
+            pts,
+            valid_tracts[["income_stratum", "geometry"]],
+            how="left",
+            predicate="within",
+        ).drop_duplicates(subset=["_idx"])
+        joined = joined.sort_values("_idx")
+        return (
+            joined["income_stratum"]
+            .astype(object)
+            .where(joined["income_stratum"].notna(), None)
+            .to_numpy()
+        )
+
+    sorted_radii = tuple(sorted(float(r) for r in radii_m))
+    pos_scores: dict[str, dict[float, list[np.ndarray]]] = {
+        lbl: {r: [] for r in sorted_radii} for lbl in labels
+    }
+    ctrl_scores: dict[str, dict[float, list[np.ndarray]]] = {
+        lbl: {r: [] for r in sorted_radii} for lbl in labels
+    }
+    n_pos_unmatched = 0
+    n_ctrl_unmatched = 0
+
+    for ev in event_samples:
+        pos_strata = _assign_stratum(ev["xs_pts"], ev["ys_pts"])
+        ctrl_strata = _assign_stratum(ev["xs_ctrl"], ev["ys_ctrl"])
+        n_pos_unmatched += int(sum(s is None for s in pos_strata))
+        n_ctrl_unmatched += int(sum(s is None for s in ctrl_strata))
+        for lbl in labels:
+            p_mask = pos_strata == lbl
+            c_mask = ctrl_strata == lbl
+            for r_m in sorted_radii:
+                if np.any(p_mask):
+                    pos_scores[lbl][r_m].append(ev["ar_pts"][r_m][p_mask])
+                if np.any(c_mask):
+                    ctrl_scores[lbl][r_m].append(ev["ar_ctrl"][r_m][c_mask])
+
+    strata_out: list[dict[str, Any]] = []
+    for lbl in labels:
+        by_buf: list[dict[str, Any]] = []
+        n_pos_lbl = sum(len(a) for a in pos_scores[lbl][sorted_radii[0]])
+        n_ctrl_lbl = sum(len(a) for a in ctrl_scores[lbl][sorted_radii[0]])
+        for r_m in sorted_radii:
+            p_arr = (
+                np.concatenate(pos_scores[lbl][r_m])
+                if pos_scores[lbl][r_m]
+                else np.array([], dtype=np.float32)
+            )
+            c_arr = (
+                np.concatenate(ctrl_scores[lbl][r_m])
+                if ctrl_scores[lbl][r_m]
+                else np.array([], dtype=np.float32)
+            )
+            cap = float(np.mean(p_arr >= depth_threshold_m)) if p_arr.size else 0.0
+            ctrl = float(np.mean(c_arr >= depth_threshold_m)) if c_arr.size else 0.0
+            lift = round(cap / ctrl, 3) if ctrl > 0.0 else None
+            auc = compute_roc_auc(p_arr, c_arr) if (p_arr.size and c_arr.size) else 0.5
+            by_buf.append(
+                {
+                    "radius_m": r_m,
+                    "capture_rate": round(cap, 4),
+                    "control_rate": round(ctrl, 4),
+                    "lift": lift,
+                    "ar_roc_auc": auc,
+                }
+            )
+        strata_out.append(
+            {
+                "stratum": lbl,
+                **stratum_bounds[lbl],
+                "n_points": int(n_pos_lbl),
+                "n_controls_pooled": int(n_ctrl_lbl),
+                "by_buffer": by_buf,
+            }
+        )
+
+    return {
+        "n_income_tracts": len(valid_tracts),
+        "n_points_unmatched_income": int(n_pos_unmatched),
+        "n_controls_unmatched_income": int(n_ctrl_unmatched),
+        "strata": strata_out,
     }
 
 
@@ -2542,6 +3009,25 @@ def _safe_spearman(
     return round(rho, 6), round(pval, 6)
 
 
+def _safe_kendall(
+    x: np.ndarray, y: np.ndarray, *, min_n: int = 3
+) -> tuple[float | None, float | None]:
+    """Compute ties-aware Kendall tau-b correlation safely."""
+    mask = np.isfinite(x) & np.isfinite(y)
+    xv = x[mask]
+    yv = y[mask]
+    if len(xv) < min_n:
+        return None, None
+    if np.all(xv == xv[0]) or np.all(yv == yv[0]):
+        return None, None
+    res = stats.kendalltau(xv, yv, variant="b")
+    tau = float(res.statistic)
+    pval = float(res.pvalue)
+    if not (math.isfinite(tau) and math.isfinite(pval)):
+        return None, None
+    return round(tau, 6), round(pval, 6)
+
+
 def compute_tract_building_exposure(
     tracts_gdf_utm: gpd.GeoDataFrame,
     buildings_gdf_utm: gpd.GeoDataFrame | None,
@@ -2731,6 +3217,15 @@ def compute_nfip_spearman_correlation(
         if claim_col in tract_df.columns and exposure_col in tract_df.columns
         else (None, None)
     )
+    tau_b, tau_p = (
+        _safe_kendall(
+            tract_df[claim_col].to_numpy(dtype=float),
+            tract_df[exposure_col].to_numpy(dtype=float),
+            min_n=min_tracts,
+        )
+        if claim_col in tract_df.columns and exposure_col in tract_df.columns
+        else (None, None)
+    )
 
     additional: dict[str, dict[str, float | None]] = {}
     candidate_pairs = (
@@ -2747,9 +3242,16 @@ def compute_nfip_spearman_correlation(
                 tract_df[e_col].to_numpy(dtype=float),
                 min_n=min_tracts,
             )
+            t_c, tp_c = _safe_kendall(
+                tract_df[c_col].to_numpy(dtype=float),
+                tract_df[e_col].to_numpy(dtype=float),
+                min_n=min_tracts,
+            )
             additional[f"{c_col}_vs_{e_col}"] = {
                 "spearman_rho": r_c,
                 "p_value": p_c,
+                "kendall_tau_b": t_c,
+                "kendall_p_value": tp_c,
             }
 
     total_claims = (
@@ -2760,21 +3262,48 @@ def compute_nfip_spearman_correlation(
         if "claim_count" in tract_df.columns
         else 0
     )
+    n_tracts = len(tract_df)
+    n_zero_claim_tracts = n_tracts - n_tracts_with_claims
+    zero_claim_fraction = (
+        round(float(n_zero_claim_tracts) / float(n_tracts), 4) if n_tracts > 0 else 0.0
+    )
     total_paid = (
         round(float(tract_df["total_paid_usd"].sum()), 2)
         if "total_paid_usd" in tract_df.columns
         else 0.0
     )
 
+    # Binary presence Mann-Whitney U test (tracts with >= 1 claim vs 0 claims) on flooded_land_area_m2
+    binary_presence_mwu: dict[str, Any] = {}
+    if "claim_count" in tract_df.columns and "flooded_land_area_m2" in tract_df.columns:
+        has_claim = tract_df["claim_count"].to_numpy(dtype=float) > 0
+        pos_area = tract_df.loc[has_claim, "flooded_land_area_m2"].to_numpy(dtype=float)
+        neg_area = tract_df.loc[~has_claim, "flooded_land_area_m2"].to_numpy(
+            dtype=float
+        )
+        if pos_area.size > 0 and neg_area.size > 0:
+            u_res = stats.mannwhitneyu(pos_area, neg_area, alternative="greater")
+            binary_presence_mwu = {
+                "auc": compute_roc_auc(pos_area, neg_area),
+                "p_value": round(float(u_res.pvalue), 6),
+                "median_flooded_m2_with_claims": round(float(np.median(pos_area)), 1),
+                "median_flooded_m2_zero_claims": round(float(np.median(neg_area)), 1),
+            }
+
     return {
-        "n_tracts": len(tract_df),
+        "n_tracts": n_tracts,
         "n_tracts_with_claims": n_tracts_with_claims,
+        "n_zero_claim_tracts": n_zero_claim_tracts,
+        "zero_claim_tract_fraction": zero_claim_fraction,
         "total_claims": total_claims,
         "total_paid_usd": total_paid,
         "primary_claim_metric": claim_col,
         "primary_exposure_metric": exposure_col,
         "spearman_rho": rho,
         "p_value": p_val,
+        "kendall_tau_b": tau_b,
+        "kendall_p_value": tau_p,
+        "binary_presence_mwu": binary_presence_mwu,
         "additional_correlations": additional,
     }
 

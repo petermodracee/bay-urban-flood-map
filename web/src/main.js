@@ -1272,7 +1272,8 @@ async function loadManifest() {
 
 	if (design.length > 0) {
 		const designGroup = document.createElement("optgroup");
-		designGroup.label = "Design Storms (NOAA Atlas 14 + OPC SLR)";
+		designGroup.label =
+			"Coincident Stress Scenarios (Atlas 14 Rain + High Tide/SLR)";
 		for (const st of design) {
 			const option = document.createElement("option");
 			option.value = st.id;
