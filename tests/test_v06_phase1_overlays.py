@@ -245,3 +245,16 @@ def test_export_overlays_only_excludes_holdout_storms(tmp_path: Path) -> None:
     assert manifest["version"] == "0.6"
     assert manifest["rain_source"] == "mrms"
     assert [s["storm"] for s in manifest["scenarios"]] == ["ar_20221231"]
+
+    # Version-prefixed manifest_version ("v0.6.1") prefixes scenario & overlay URLs
+    cfg["export"]["manifest_version"] = "v0.6.1"
+    cfg_path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+    manifest_v_path = mod.export_overlays_only(cfg_path)
+    manifest_v = json.loads(manifest_v_path.read_text(encoding="utf-8"))
+    assert manifest_v["version"] == "v0.6.1"
+    assert manifest_v["scenarios"][0]["url"] == (
+        "/data/v0.6.1/sf_citywide_ar_20221231_depth_3857.tif"
+    )
+    assert manifest_v["overlays"]["tier_b_benchmark"]["url"] == (
+        "/data/v0.6.1/sf_sfpuc_100yr_benchmark.geojson"
+    )

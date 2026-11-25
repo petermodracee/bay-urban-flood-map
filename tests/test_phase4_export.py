@@ -99,6 +99,15 @@ def test_build_manifest_schema_and_config() -> None:
     assert exp_cfg["manifest_file"] == "data/web_outputs/manifest.json"
 
 
+def test_resolve_asset_url_prefix() -> None:
+    assert exp_mod.resolve_asset_url_prefix("/data", "0.1") == "/data"
+    assert exp_mod.resolve_asset_url_prefix("/data", "0.6") == "/data"
+    assert exp_mod.resolve_asset_url_prefix("/data", "v0.6.1") == "/data/v0.6.1"
+    assert exp_mod.resolve_asset_url_prefix("/data/v0.6.1", "v0.6.1") == "/data/v0.6.1"
+    assert exp_mod.resolve_asset_url_prefix("", "v0.6.1") == "v0.6.1"
+    assert exp_mod.resolve_asset_url_prefix("v0.6.1", "v0.6.1") == "v0.6.1"
+
+
 def test_export_benchmark_geojson(tmp_path: Path) -> None:
     xmin, ymin, xmax, ymax = 550000.0, 4175800.0, 550100.0, 4175900.0
     poly = Polygon(

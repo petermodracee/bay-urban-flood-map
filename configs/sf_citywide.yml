@@ -463,5 +463,5 @@ export:
   dem_cog_file: "data/web_outputs/sf_hydro_dem_3857.tif"
   holdout_storms: ["ar_20240204"]
   manifest_file: "data/web_outputs/manifest.json"
-  manifest_version: "0.6"
+  manifest_version: "v0.6.1"
   web_data_url_prefix: "/data"
