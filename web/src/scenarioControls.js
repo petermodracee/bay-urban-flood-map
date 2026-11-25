@@ -45,7 +45,12 @@ export function groupAvailableStorms(scenarios) {
 }
 
 export function formatManifestSubtitle(manifest) {
-	const version = manifest?.version ? `v${manifest.version}` : "v0.6";
+	const rawVersion = String(manifest?.version ?? "").trim();
+	const version = rawVersion
+		? rawVersion.startsWith("v")
+			? rawVersion
+			: `v${rawVersion}`
+		: "v0.6";
 	const parts = ["2 m Subgrid"];
 	if (manifest?.drainage_tier) {
 		parts.push(manifest.drainage_tier);
