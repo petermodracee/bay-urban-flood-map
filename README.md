@@ -58,6 +58,10 @@ An open-source urban stormwater and compound sea level rise (SLR) flood model an
 │   ├── 03_rescore_v061.py    # v0.6.1 reproducible rescoring of frozen v0.6 outputs
 │   ├── 03_phase3_v061.py     # v0.6.1 drainage-rate sweep & Atlas 14 TD sensitivity runner
 │   └── 04_export_cog.py      # Downscale, SLR deltas, GeoJSON, & EPSG:3857 COGs
+├── deploy/
+│   ├── upload_r2.sh          # Version-prefixed R2 uploader & latest.json pointer publisher
+│   └── r2-cors.json          # Cloudflare R2 CORS policy for browser COG streaming
+├── tests/                    # Offline pytest unit & regression suites
 ├── web/                      # Vite + MapLibre GL viewer (index.html, about.html, methodology.html)
 ├── data/                     # Local raw/processed/runs/web outputs (git-ignored)
 └── environment.yml           # Conda environment (conda-forge)
