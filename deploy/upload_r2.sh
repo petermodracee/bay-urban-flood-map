@@ -160,11 +160,17 @@ content_type_for() {
   esac
 }
 
+if command -v wrangler >/dev/null 2>&1; then
+  WRANGLER=(wrangler)
+else
+  WRANGLER=(npx --yes wrangler)
+fi
+
 check_key_absent() {
   local key="$1"
   local output=""
   local status=0
-  output="$(npx wrangler r2 object get "${BUCKET_NAME}/${key}" --file /dev/null --remote 2>&1)" || status=$?
+  output="$("${WRANGLER[@]}" r2 object get "${BUCKET_NAME}/${key}" --pipe --remote </dev/null 2>&1 >/dev/null)" || status=$?
   if [[ ${status} -eq 0 ]]; then
     echo "Error: version prefix '${VERSION}/' already exists in r2://${BUCKET_NAME} (found ${key})." >&2
     echo "Refusing to overwrite a released version. Bump VERSION to publish a new release." >&2
@@ -189,7 +195,7 @@ upload_file() {
   fi
 
   echo "Uploading ${key} (${content_type}) -> r2://${BUCKET_NAME}/${key}"
-  npx wrangler r2 object put "${BUCKET_NAME}/${key}" \
+  "${WRANGLER[@]}" r2 object put "${BUCKET_NAME}/${key}" \
     --file "${file_path}" \
     --content-type "${content_type}" \
     --cache-control "${cache_control}" \
